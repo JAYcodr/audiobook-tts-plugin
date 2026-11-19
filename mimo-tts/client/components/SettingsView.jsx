@@ -1,7 +1,10 @@
-import React from 'react'
-import { fmtDirtyVal } from '../config-draft.js'
+import React, { useMemo, useState } from 'react'
+import { buildDraftSnapshot, fmtDirtyVal } from '../config-draft.js'
 import { fmtBytes, fmtInt, localStateText, ttlText } from '../format.js'
+import { LexiconEditor } from './LexiconEditor.jsx'
+import { PreviewPlayer } from './PreviewPlayer.jsx'
 import { Chips, Field, Input, Knob, Rowx, Seg, Textarea, Toggle } from './Primitives.jsx'
+import { RefVoiceLibrary } from './RefVoiceLibrary.jsx'
 
 function settingsChainValue(live, draft) {
   const cache = live?.cache || {}
@@ -19,25 +22,142 @@ function scrollToModule(id) {
   el.scrollIntoView({ block: 'start', behavior: reduced ? 'auto' : 'smooth' })
 }
 
-const MOD_NAV = [
-  ['mod-engine', '01', '引擎'],
-  ['mod-local', '02', '本地引擎'],
-  ['mod-openai', '03', 'OpenAI 兼容'],
-  ['mod-voice', '04', '音色'],
-  ['mod-synth', '05', '合成与缓存'],
-  ['mod-transport', '06', '传输'],
-  ['mod-auth', '07', '鉴权'],
+const NAV_GROUPS = [
+  {
+    title: '一 · 引擎与服务',
+    items: [
+      ['mod-engine', '01', '引擎与接入'],
+      ['mod-local', '02', '本地 Qwen3'],
+      ['mod-openai', '03', 'OpenAI 兼容'],
+    ],
+  },
+  {
+    title: '二 · 音色与参考音库',
+    items: [
+      ['mod-voice', '04', '方案 / 音色 / 试听'],
+      ['mod-refs', '05', '参考音库'],
+    ],
+  },
+  {
+    title: '三 · 文本与合成',
+    items: [
+      ['mod-lexicon', '06', '发音 / 断句规则'],
+      ['mod-synth', '07', '切分 / 缓存'],
+    ],
+  },
+  {
+    title: '四 · 交付与安全',
+    items: [
+      ['mod-transport', '08', '端口 / Legado'],
+      ['mod-auth', '09', '鉴权 / 日志'],
+    ],
+  },
 ]
 
-export function SettingsView({
-  live, localInfo, draft, applied, changes, presetVoices,
-  saving, savedAt, onSet, onSave, onRevert, onExportConfig, onPreview, previewBusy,
+function RoleVoiceCard({
+  roleKey, label, sub, provider, d, onSet, presetVoices, refsList,
 }) {
+  const modePath = `voices.${roleKey}.mode`
+  const voicePath = `voices.${roleKey}.voice`
+  const stylePath = `voices.${roleKey}.style`
+  const refPath = `voices.${roleKey}.refId`
+  const mode = d[modePath] || 'preset'
+
+  return (
+    <div className="role-card">
+      <div className="role-card-hd">
+        <b>{label} <i>{sub}</i></b>
+        {provider === 'mimo' ? (
+          <Seg
+            options={[
+              { value: 'preset', label: '预置' },
+              { value: 'design', label: '文字造音' },
+              { value: 'clone', label: '克隆' },
+            ]}
+            value={mode}
+            ariaLabel={`${label}模式`}
+            onChange={(v) => onSet(modePath, v)}
+          />
+        ) : (
+          <span className="tag">{provider === 'openai' ? 'OpenAI 音色在上方设置' : `MiMo ${mode}`}</span>
+        )}
+      </div>
+
+      {mode === 'preset' ? (
+        <>
+          <div className="field">
+            <span className="fl">预置音色 <i>PRESET</i></span>
+            <Chips options={presetVoices} value={d[voicePath]} ariaLabel={`${label}音色`} onChange={(v) => onSet(voicePath, v)} />
+          </div>
+          <Field label="自然语言风格" sub="STYLE">
+            <Input value={d[stylePath]} onChange={(v) => onSet(stylePath, v)} placeholder="如：温润端庄的中文女声，吐字清晰" />
+          </Field>
+        </>
+      ) : null}
+
+      {mode === 'design' ? (
+        <Field label="音色描述（mimo-v2.5-tts-voicedesign）" sub="必填 STYLE">
+          <Textarea
+            value={d[stylePath]}
+            rows={2}
+            placeholder="详细描述性别、年龄、音色与情绪，例如：声音清润温柔的年轻说书女声，从容舒缓"
+            onChange={(v) => onSet(stylePath, v)}
+          />
+        </Field>
+      ) : null}
+
+      {mode === 'clone' ? (
+        <>
+          <Field label="从统一参考音库选择" sub="REF ID">
+            <select className="input" value={d[refPath] || ''} onChange={(e) => onSet(refPath, e.target.value)}>
+              <option value="">-- 使用下方手动路径 --</option>
+              {refsList.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {`${r.name}${r.durationSec ? ` (${r.durationSec}s)` : ''}${r.builtin ? ' [内置]' : ''}`}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {!d[refPath] ? (
+            <Field label="或填写音频路径 / URL（支持 ~/）" sub="VOICE FILE">
+              <Input
+                value={d[voicePath]}
+                spellCheck={false}
+                placeholder="~/voices/sample.wav"
+                onChange={(v) => onSet(voicePath, v)}
+              />
+            </Field>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+export function SettingsView({
+  live, localInfo, draft, applied, changes, presetVoices, builtinVoiceProfiles,
+  builtinRulePresets, refs, onRefsChange, onOpenSetup,
+  saving, savedAt, onSet, onSetBatch, onSave, onRevert, onExportConfig, showToast,
+}) {
+  const [expandLocal, setExpandLocal] = useState(false)
+  const [expandOpenai, setExpandOpenai] = useState(false)
+  const [newProfileName, setNewProfileName] = useState('')
+
   const d = draft || applied || {}
+  const provider = String(d['upstream.provider'] || 'mimo')
   const dirty = (path) => changes.some((c) => c.path === path)
   const moduleDirty = (name) => changes.some((c) => c.module === name)
   const set = (path) => (value) => onSet(path, value)
   const chain = settingsChainValue(live, d)
+  const refsList = Array.isArray(refs) ? refs : []
+
+  const draftPatch = useMemo(() => buildDraftSnapshot(d), [d])
+
+  const allProfiles = useMemo(() => {
+    const builtins = Array.isArray(builtinVoiceProfiles) ? builtinVoiceProfiles : []
+    const custom = Array.isArray(d['voiceProfiles.items']) ? d['voiceProfiles.items'] : []
+    return [...builtins, ...custom]
+  }, [builtinVoiceProfiles, d['voiceProfiles.items']])
 
   const input = (path, opts = {}) => <Input value={d[path]} onChange={set(path)} {...opts} />
   const knob = (path, label, min, max, step, unit, ariaLabel) => (
@@ -61,21 +181,129 @@ export function SettingsView({
     </div>
   )
 
-  const moduleShell = (id, no, title, silk, name, children) => (
-    <div className={`module${moduleDirty(name) ? ' is-dirty' : ''}`} id={id} data-module="true">
+  const moduleShell = (id, no, title, silk, name, children, opts = {}) => (
+    <div className={`module${opts.wide ? ' module--wide' : ''}${moduleDirty(name) ? ' is-dirty' : ''}`} id={id} data-module="true">
       <div className="module-hd">
         <span className="mh">
           <span className="mnum">{no}</span>
           <b>{title}</b>
           <span className="silk">{silk}</span>
         </span>
-        <span className="dirty-dot" title="有未保存改动" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {opts.right}
+          <span className="dirty-dot" title="有未保存改动" />
+        </div>
       </div>
       {children}
     </div>
   )
 
+  const localActive = provider === 'local' || provider === 'hybrid'
+  const showLocalBody = localActive || expandLocal || moduleDirty('local')
+  const openaiActive = provider === 'openai'
+  const showOpenaiBody = openaiActive || expandOpenai || moduleDirty('openai')
   const localTag = !localInfo?.enabled ? '随渲染来源切换' : localStateText(localInfo)
+
+  const applyVoiceProfile = (profileId) => {
+    const prof = allProfiles.find((p) => p.id === profileId)
+    if (!prof) return
+    const nextMap = { 'voiceProfiles.active': prof.id }
+    for (const role of ['narrator', 'dialogue']) {
+      const v = prof.voices?.[role]
+      if (v) {
+        nextMap[`voices.${role}.mode`] = v.mode || 'preset'
+        nextMap[`voices.${role}.voice`] = v.voice || ''
+        nextMap[`voices.${role}.style`] = v.style || ''
+        nextMap[`voices.${role}.refId`] = v.refId || ''
+      }
+      const lr = prof.localRefs?.[role]
+      if (lr) {
+        nextMap[`upstream.local.refs.${role}.refId`] = lr.refId || ''
+        nextMap[`upstream.local.refs.${role}.wav`] = lr.wav || ''
+        nextMap[`upstream.local.refs.${role}.text`] = lr.text || ''
+      }
+    }
+    onSetBatch(nextMap)
+    showToast(`已载入音色方案：${prof.name}（保存后持久化）`)
+  }
+
+  const saveCurrentProfile = () => {
+    const cleanName = newProfileName.trim()
+    if (!cleanName) {
+      showToast('请输入新方案名称')
+      return
+    }
+    const id = `custom:${Date.now().toString(36)}`
+    const nextItem = {
+      id,
+      name: cleanName,
+      builtin: false,
+      voices: {
+        narrator: {
+          mode: d['voices.narrator.mode'] || 'preset',
+          voice: d['voices.narrator.voice'] || '',
+          style: d['voices.narrator.style'] || '',
+          refId: d['voices.narrator.refId'] || '',
+        },
+        dialogue: {
+          mode: d['voices.dialogue.mode'] || 'preset',
+          voice: d['voices.dialogue.voice'] || '',
+          style: d['voices.dialogue.style'] || '',
+          refId: d['voices.dialogue.refId'] || '',
+        },
+      },
+      localRefs: {
+        narrator: {
+          refId: d['upstream.local.refs.narrator.refId'] || '',
+          wav: d['upstream.local.refs.narrator.wav'] || '',
+          text: d['upstream.local.refs.narrator.text'] || '',
+        },
+        dialogue: {
+          refId: d['upstream.local.refs.dialogue.refId'] || '',
+          wav: d['upstream.local.refs.dialogue.wav'] || '',
+          text: d['upstream.local.refs.dialogue.text'] || '',
+        },
+      },
+    }
+    const existing = Array.isArray(d['voiceProfiles.items']) ? d['voiceProfiles.items'] : []
+    onSetBatch({
+      'voiceProfiles.items': [...existing, nextItem],
+      'voiceProfiles.active': id,
+    })
+    setNewProfileName('')
+    showToast(`已添加到草稿音色方案：${cleanName}`)
+  }
+
+  const renderLocalRefPicker = (roleKey, label) => {
+    const refPath = `upstream.local.refs.${roleKey}.refId`
+    const wavPath = `upstream.local.refs.${roleKey}.wav`
+    const textPath = `upstream.local.refs.${roleKey}.text`
+    const selected = refsList.find((r) => r.id === d[refPath])
+    return (
+      <div className="local-ref-slot">
+        <Field label={`${label}参考音库选择`} sub="REF">
+          <select className="input" value={d[refPath] || ''} onChange={(e) => onSet(refPath, e.target.value)}>
+            <option value="">-- 手动填写本地路径（兼容旧配置）--</option>
+            {refsList.map((r) => (
+              <option key={r.id} value={r.id}>
+                {`${r.name}${r.durationSec ? ` (${r.durationSec}s)` : ''}${r.text ? '' : ' [缺文本]'}`}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {selected ? (
+          <div className="mono ref-picked-note">
+            已关联：{selected.text ? `「${selected.text}」` : '⚠️ 该样本未填写逐字文本，请在下方参考音库补充'}
+          </div>
+        ) : (
+          twoCol(
+            <Field label={`${label}路径`} sub="WAV (支持 ~/)" style={{ padding: 0 }}>{input(wavPath, { spellCheck: false })}</Field>,
+            <Field label={`${label}逐字文本`} sub="TEXT" style={{ padding: 0 }}>{input(textPath)}</Field>,
+          )
+        )}
+      </div>
+    )
+  }
 
   return (
     <section className="view view--settings" id="view-settings" aria-label="渲染设置">
@@ -83,34 +311,43 @@ export function SettingsView({
         <div className="set-left">
           <div>
             <h2>渲染设置</h2>
-            <div className="sub">Render Rack</div>
+            <div className="sub">Render Rack · 4 Groups</div>
           </div>
           <div className="chain" aria-label="信号链">
-            <div className="chain-node"><span className="ld" /><b>章节正文</b> <span className="muted">TEXT</span></div>
+            <div className="chain-node"><span className="ld" /><b>正文 + 替换</b> <span className="muted">LEXICON</span></div>
             <div className="chain-link" />
             <div className="chain-node"><span className="ld" /><b>切分</b> <span className="muted">旁白 / 对话</span></div>
             <div className="chain-link" />
-            <div className="chain-node"><span className="ld" /><b>合成队列</b> <span className="muted">{`CONCURRENCY ${chain.concurrency}`}</span></div>
+            <div className="chain-node"><span className="ld" /><b>并发队列</b> <span className="muted">{`x${chain.concurrency}`}</span></div>
             <div className="chain-link" />
             <div className="chain-node"><span className="ld" /><b>缓存带</b> <span className="muted">{chain.cache}</span></div>
             <div className="chain-link" />
             <div className="chain-node"><span className="ld" /><b>引擎</b> <span className="muted">{chain.engine}</span></div>
-            <div className="chain-link" />
-            <div className="chain-node"><span className="ld" /><b>WAV</b> <span className="muted">整段 · 真实时长</span></div>
           </div>
-          <p className="chain-note">改动先落草稿，点「保存并生效」才写入运行配置。密钥只在本机，页面拿到的永远是掩码。</p>
-          <nav className="mod-index" aria-label="模块定位">
-            {MOD_NAV.map(([id, no, name]) => (
-              <button key={id} type="button" data-scroll={id} onClick={() => scrollToModule(id)}>
-                <span className="n">{no}</span>
-                {name}
-              </button>
+          <nav className="mod-index" aria-label="模块分组定位">
+            {NAV_GROUPS.map((g) => (
+              <div key={g.title} className="mod-group-nav">
+                <div className="mgn-title">{g.title}</div>
+                {g.items.map(([id, no, name]) => (
+                  <button key={id} type="button" data-scroll={id} onClick={() => scrollToModule(id)}>
+                    <span className="n">{no}</span>
+                    {name}
+                  </button>
+                ))}
+              </div>
             ))}
           </nav>
         </div>
 
         <div className="modules" id="modules">
-          {moduleShell('mod-engine', '01', '引擎', 'ENGINE', 'engine', [
+          <div className="mod-group-hd">
+            <span className="silk">GROUP 01 · <b>引擎与服务</b></span>
+            <button className="btn btn--sm btn--tape" type="button" onClick={onOpenSetup}>
+              打开向导与体检
+            </button>
+          </div>
+
+          {moduleShell('mod-engine', '01', '渲染来源与云端接入', 'ENGINE', 'engine', [
             <div key="prov" className="ctrl-row">
               <div className="cl"><b>渲染来源</b><i>PROVIDER</i></div>
               <Seg
@@ -120,34 +357,60 @@ export function SettingsView({
                   { value: 'hybrid', label: '混合' },
                   { value: 'openai', label: 'OpenAI' },
                 ]}
-                value={d['upstream.provider']}
+                value={provider}
                 ariaLabel="渲染来源"
                 onChange={(v) => onSet('upstream.provider', v)}
               />
             </div>,
-            <div key="knobs" className="knob-row">
-              {knob('upstream.hybrid.maxCloudBootstrap', '云顶班', 0, 30, 1, '段', '云顶班上限（段）')}
-              {knob('upstream.hybrid.cloudConcurrency', '云并发', 1, 2, 1, '路', '云并发（路，MiMo 克隆最多 2 路）')}
-              <div className="knob-wrap" data-label="本地预热">
-                <span className="kl">本地预热</span>
-                {toggle('upstream.hybrid.warmup', '本地预热')}
+            provider === 'mimo' || provider === 'hybrid' ? (
+              <div key="mimo-conn" className="mimo-conn">
+                <Field label="MiMo API Key" sub="每行一个 · 保留掩码行可追加">
+                  <Textarea
+                    value={d['upstream.keys']}
+                    rows={2}
+                    spellCheck={false}
+                    placeholder="sk-…（保留已有掩码行即可追加新 Key）"
+                    onChange={set('upstream.keys')}
+                  />
+                </Field>
+                {twoCol(
+                  <Field label="云端模型" sub="MODEL" style={{ padding: 0 }}>{input('upstream.model', { spellCheck: false })}</Field>,
+                  <Field label="上游地址" sub="BASE URL" style={{ padding: 0 }}>{input('upstream.baseUrl', { spellCheck: false })}</Field>,
+                )}
+                {twoCol(
+                  <Field label="超时 (ms)" sub="TIMEOUT" style={{ padding: 0 }}>{input('upstream.timeoutMs', { type: 'number' })}</Field>,
+                  <Field label="重试次数" sub="RETRY" style={{ padding: 0 }}>{input('upstream.maxRetry', { type: 'number' })}</Field>,
+                )}
               </div>
-            </div>,
-            <Field key="rms" label="目标响度" sub="RMS">{input('upstream.hybrid.targetRms', { inputMode: 'decimal', type: 'text' })}</Field>,
-            <Field key="model" label="MiMo 云端模型" sub="MODEL">{input('upstream.model', { spellCheck: false })}</Field>,
-          ])}
+            ) : null,
+            provider === 'hybrid' ? (
+              <div key="hy-box">
+                <div className="knob-row">
+                  {knob('upstream.hybrid.maxCloudBootstrap', '云顶班', 0, 30, 1, '段', '云顶班上限（段）')}
+                  {knob('upstream.hybrid.cloudConcurrency', '云并发', 1, 2, 1, '路', '云并发（路）')}
+                  <div className="knob-wrap" data-label="本地预热">
+                    <span className="kl">本地预热</span>
+                    {toggle('upstream.hybrid.warmup', '本地预热')}
+                  </div>
+                </div>
+                <Field label="目标响度" sub="RMS">{input('upstream.hybrid.targetRms', { inputMode: 'decimal', type: 'text' })}</Field>
+              </div>
+            ) : null,
+          ], {
+            wide: provider === 'hybrid',
+          })}
 
-          {moduleShell('mod-local', '02', '本地引擎', 'LOCAL QWEN3-TTS', 'local', [
+          {moduleShell('mod-local', '02', '本地引擎 (Qwen3-TTS MLX)', localActive ? 'ACTIVE' : 'COLLAPSED', 'local', showLocalBody ? [
             <div key="st" className="ctrl-row">
-              <div className="cl"><b>本地引擎</b><i>ENABLED</i></div>
-              <span className="tag">{localTag}</span>
+              <div className="cl"><b>引擎进程状态</b><i>{localTag}</i></div>
+              <button className="btn btn--sm" type="button" onClick={onOpenSetup}>自动探测 / 安装</button>
             </div>,
-            <Field key="py" label="Python" sub="VENV">{input('upstream.local.pythonPath', { spellCheck: false })}</Field>,
-            <Field key="sc" label="Sidecar 脚本" sub="SERVER">{input('upstream.local.serverScript', { spellCheck: false })}</Field>,
-            <Field key="md" label="模型目录" sub="MLX MODEL">{input('upstream.local.modelPath', { spellCheck: false })}</Field>,
+            <Field key="py" label="Python (支持 ~/)" sub="VENV">{input('upstream.local.pythonPath', { spellCheck: false, placeholder: '~/.dsh/plugin-data/audiobook-tts-plugin/venv/bin/python' })}</Field>,
+            <Field key="md" label="模型目录 (支持 ~/)" sub="MLX MODEL">{input('upstream.local.modelPath', { spellCheck: false, placeholder: '~/.dsh/plugin-data/audiobook-tts-plugin/models/qwen3tts-0.6b-base-8bit' })}</Field>,
+            <Field key="sc" label="Sidecar 脚本（留空用内置）" sub="SERVER">{input('upstream.local.serverScript', { spellCheck: false })}</Field>,
             twoCol(
               <Field key="lp" label="端口" sub="PORT" style={{ padding: 0 }}>{input('upstream.local.port', { type: 'number' })}</Field>,
-              <Field key="lt" label="启动超时" sub="MS" style={{ padding: 0 }}>{input('upstream.local.startupTimeoutMs', { type: 'number' })}</Field>,
+              <Field label="启动超时" sub="MS" style={{ padding: 0 }}>{input('upstream.local.startupTimeoutMs', { type: 'number' })}</Field>,
             ),
             <div key="idle" className="knob-row">
               {knob('upstream.local.idleUnloadSeconds', '空闲卸载', 0, 3600, 30, 's', '空闲卸载（秒，0=常驻）')}
@@ -155,17 +418,20 @@ export function SettingsView({
                 {input('upstream.local.requestTimeoutMs', { type: 'number' })}
               </Field>
             </div>,
-            twoCol(
-              <Field key="nw" label="旁白参考音" sub="WAV" style={{ padding: 0 }}>{input('upstream.local.refs.narrator.wav', { spellCheck: false })}</Field>,
-              <Field key="dw" label="对话参考音" sub="WAV" style={{ padding: 0 }}>{input('upstream.local.refs.dialogue.wav', { spellCheck: false })}</Field>,
-            ),
-            twoCol(
-              <Field key="nt" label="旁白参考文本" sub="REF TEXT" style={{ padding: 0 }}>{input('upstream.local.refs.narrator.text')}</Field>,
-              <Field key="dt" label="对话参考文本" sub="REF TEXT" style={{ padding: 0 }}>{input('upstream.local.refs.dialogue.text')}</Field>,
-            ),
-          ])}
+            <div key="nr">{renderLocalRefPicker('narrator', '旁白')}</div>,
+            <div key="dr">{renderLocalRefPicker('dialogue', '对话（可选）')}</div>,
+          ] : (
+            <div key="col-loc" className="collapsed-note">
+              <span>当前渲染来源为「{provider}」，本地 Qwen3-TTS 参数已折叠。</span>
+              <button className="btn btn--sm" type="button" onClick={() => setExpandLocal(true)}>展开查看</button>
+            </div>
+          ), {
+            right: !localActive && showLocalBody ? (
+              <button className="btn btn--sm btn--ghost" type="button" onClick={() => setExpandLocal(false)}>收起</button>
+            ) : null,
+          })}
 
-          {moduleShell('mod-openai', '03', 'OpenAI 兼容', 'OPENAI / KOKORO / EDGE-TTS', 'openai', [
+          {moduleShell('mod-openai', '03', 'OpenAI 兼容引擎', openaiActive ? 'ACTIVE' : 'COLLAPSED', 'openai', showOpenaiBody ? [
             <Field key="oab" label="接口地址" sub="BASE URL">{input('upstream.openai.baseUrl', { spellCheck: false, placeholder: 'http://127.0.0.1:8880/v1' })}</Field>,
             <Field key="oak" label="API Key" sub="可选 · 已掩码">{input('upstream.openai.apiKey', { spellCheck: false, placeholder: '本地 Kokoro/Edge-TTS 可留空' })}</Field>,
             twoCol(
@@ -189,31 +455,102 @@ export function SettingsView({
               />
             </div>,
             <Field key="oai" label="风格指令" sub="INSTRUCTIONS · 可选">{input('upstream.openai.instructions', { placeholder: '如：沉稳温柔地朗读小说' })}</Field>,
-          ])}
+          ] : (
+            <div key="col-oa" className="collapsed-note">
+              <span>当前未启用 OpenAI / Kokoro / Edge-TTS 兼容协议。</span>
+              <button className="btn btn--sm" type="button" onClick={() => setExpandOpenai(true)}>展开查看</button>
+            </div>
+          ), {
+            right: !openaiActive && showOpenaiBody ? (
+              <button className="btn btn--sm btn--ghost" type="button" onClick={() => setExpandOpenai(false)}>收起</button>
+            ) : null,
+          })}
 
-          {moduleShell('mod-voice', '04', '音色', 'VOICE PRESET', 'voice', [
-            <div key="nv" className="field">
-              <span className="fl">旁白 <i>NARRATOR · 模式 preset</i></span>
-              <Chips options={presetVoices} value={d['voices.narrator.voice']} ariaLabel="旁白音色" onChange={(v) => onSet('voices.narrator.voice', v)} />
-            </div>,
-            <Field key="ns" label="旁白风格" sub="STYLE">{input('voices.narrator.style')}</Field>,
-            <div key="dv" className="field">
-              <span className="fl">对话 <i>DIALOGUE · 模式 preset</i></span>
-              <Chips options={presetVoices} value={d['voices.dialogue.voice']} ariaLabel="对话音色" onChange={(v) => onSet('voices.dialogue.voice', v)} />
-            </div>,
-            <Field key="ds" label="对话风格" sub="STYLE">{input('voices.dialogue.style')}</Field>,
-            <div key="pv" style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-              <button className="btn btn--sm btn--tape" type="button" disabled={Boolean(previewBusy)} onClick={() => onPreview('narrator')}>
-                {previewBusy === 'narrator' ? '合成中…' : '试听旁白'}
-              </button>
-              <button className="btn btn--sm" type="button" disabled={Boolean(previewBusy)} onClick={() => onPreview('dialogue')}>
-                {previewBusy === 'dialogue' ? '合成中…' : '试听对话'}
-              </button>
-            </div>,
-            <p key="vh" className="hint">混合启动的云端阶段使用参考音克隆；这里的 MiMo 预置音色只在纯云端模式生效。</p>,
-          ])}
+          <div className="mod-group-hd">
+            <span className="silk">GROUP 02 · <b>音色方案、统一参考音库与试听</b></span>
+          </div>
 
-          {moduleShell('mod-synth', '05', '合成与缓存', 'SYNTH · CACHE', 'synth', [
+          {moduleShell('mod-voice', '04', '音色预设方案与 MiMo 三模式 / 草稿试听', 'VOICE & PROFILES', 'voice', [
+            <div key="vp" className="vp-bar">
+              <span className="silk">一键音色方案</span>
+              <div className="vp-chips">
+                {allProfiles.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="chip"
+                    aria-pressed={String(d['voiceProfiles.active'] === p.id)}
+                    onClick={() => applyVoiceProfile(p.id)}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+              <div className="vp-save">
+                <input
+                  className="input"
+                  value={newProfileName}
+                  placeholder="新方案名（保存当前旁白+对话组合）"
+                  onChange={(e) => setNewProfileName(e.target.value)}
+                />
+                <button className="btn btn--sm" type="button" onClick={saveCurrentProfile}>
+                  存为方案
+                </button>
+              </div>
+            </div>,
+            <div key="roles" className="role-grid">
+              <RoleVoiceCard
+                roleKey="narrator"
+                label="旁白"
+                sub="NARRATOR"
+                provider={provider}
+                d={d}
+                onSet={onSet}
+                presetVoices={presetVoices}
+                refsList={refsList}
+              />
+              <RoleVoiceCard
+                roleKey="dialogue"
+                label="对话"
+                sub="DIALOGUE"
+                provider={provider}
+                d={d}
+                onSet={onSet}
+                presetVoices={presetVoices}
+                refsList={refsList}
+              />
+            </div>,
+            <PreviewPlayer
+              key="pv"
+              draftPatch={draftPatch}
+              showToast={showToast}
+              defaultRole="narrator"
+              title="PREVIEW DRAFT · 未保存草稿交互试听"
+            />,
+          ], { wide: true })}
+
+          {moduleShell('mod-refs', '05', '统一参考音库', 'UNIFIED REF LIBRARY', 'refs', [
+            <RefVoiceLibrary key="rl" refs={refsList} onRefsChange={onRefsChange} showToast={showToast} />,
+          ], { wide: true })}
+
+          <div className="mod-group-hd">
+            <span className="silk">GROUP 03 · <b>文本规则、切分与缓存</b></span>
+          </div>
+
+          {moduleShell('mod-lexicon', '06', '文本发音与断句规则', 'LEXICON', 'lexicon', [
+            <LexiconEditor
+              key="lx"
+              enabled={Boolean(d['textRules.enabled'])}
+              items={d['textRules.items']}
+              presets={builtinRulePresets}
+              maxSegmentChars={d['synth.maxSegmentChars']}
+              onToggle={(val) => onSet('textRules.enabled', val)}
+              onChangeItems={(items) => onSet('textRules.items', items)}
+              showToast={showToast}
+            />,
+          ], { wide: true })}
+
+          {moduleShell('mod-synth', '07', '合成与缓存', 'SYNTH · CACHE', 'synth', [
             <div key="k1" className="knob-row">
               {knob('synth.concurrency', '并发', 1, 8, 1, '路', '合成并发（路）')}
               {knob('synth.maxSegmentChars', '每段字数', 10, 300, 10, '字', '每段最大字数')}
@@ -238,33 +575,23 @@ export function SettingsView({
             </div>,
           ])}
 
-          {moduleShell('mod-transport', '06', '传输', 'TRANSPORT', 'transport', [
+          <div className="mod-group-hd">
+            <span className="silk">GROUP 04 · <b>网络端口、Legado 与安全鉴权</b></span>
+          </div>
+
+          {moduleShell('mod-transport', '08', '传输与 Legado 导出', 'TRANSPORT', 'transport', [
             twoCol(
               <Field key="sh" label="监听地址" sub="HOST" style={{ padding: 0 }}>{input('server.host', { spellCheck: false })}</Field>,
               <Field key="sp" label="端口" sub="PORT" style={{ padding: 0 }}>{input('server.port', { type: 'number' })}</Field>,
             ),
             <Field key="pu" label="对外地址" sub="PUBLIC URL · 隧道/反代时填">{input('server.publicUrl', { spellCheck: false, placeholder: 'https://tts.example.com' })}</Field>,
-            <Field key="ub" label="MiMo 地址" sub="BASE URL">{input('upstream.baseUrl', { spellCheck: false })}</Field>,
-            <Field key="uk" label="MiMo API Key" sub="每行一个 · 保留掩码行可追加新 Key">
-              <Textarea
-                value={d['upstream.keys']}
-                rows={2}
-                spellCheck={false}
-                placeholder="sk-…（保留已有掩码行即可追加新 Key）"
-                onChange={set('upstream.keys')}
-              />
-            </Field>,
-            twoCol(
-              <Field key="ut" label="超时" sub="MS" style={{ padding: 0 }}>{input('upstream.timeoutMs', { type: 'number' })}</Field>,
-              <Field key="ur" label="重试" sub="MAX RETRY" style={{ padding: 0 }}>{input('upstream.maxRetry', { type: 'number' })}</Field>,
-            ),
             <Field key="ln" label="Legado 引擎名" sub="EXPORT NAME">{input('legado.name', { spellCheck: false })}</Field>,
             <Field key="lh" label="附加请求头" sub="JSON · 会写进导出的朗读引擎">
               <Textarea value={d['legado.extraHeaders']} rows={2} spellCheck={false} onChange={set('legado.extraHeaders')} />
             </Field>,
           ])}
 
-          {moduleShell('mod-auth', '07', '鉴权', 'AUTH', 'auth', [
+          {moduleShell('mod-auth', '09', '鉴权与日志', 'AUTH', 'auth', [
             <div key="ae" className="ctrl-row">
               <div className="cl"><b>Basic 鉴权</b><i>ENABLED</i></div>
               {toggle('auth.enabled', 'Basic 鉴权')}
@@ -283,10 +610,10 @@ export function SettingsView({
             <div className="sub">Apply · Draft</div>
           </div>
           <div className="apply-sum" id="appliedSummary">
-            <Rowx k="渲染来源" v={String(d['upstream.provider'] || 'mimo')} />
+            <Rowx k="渲染来源" v={provider} />
             <Rowx k="监听" v={`${d['server.host'] || '—'}:${d['server.port'] || '—'}`} />
-            <Rowx k="云端模型" v={d['upstream.provider'] === 'openai' ? String(d['upstream.openai.model'] || '—') : String(d['upstream.model'] || '—')} />
-            <Rowx k="本地端口" v={String(d['upstream.local.port'] || '—')} />
+            <Rowx k="模型" v={provider === 'openai' ? String(d['upstream.openai.model'] || '—') : String(d['upstream.model'] || '—')} />
+            <Rowx k="规则" v={d['textRules.enabled'] ? `${(d['textRules.items'] || []).length} 条` : '已关闭'} />
             <Rowx k="每段 / 并发" v={`${d['synth.maxSegmentChars'] || '—'} 字 / ${d['synth.concurrency'] || '—'} 路`} />
             <Rowx k="限速" v={`${d['limits.rpm'] || '—'} 次/分`} />
             <Rowx k="缓存" v={`${d['cache.maxEntries'] || '—'} 条 · TTL ${ttlText(d['cache.ttlSeconds'])}`} />
@@ -317,7 +644,7 @@ export function SettingsView({
               </ul>
             )}
           </div>
-          <p className="hint">保存后写入 PUT /api/config，脏标 → 保存中 → 已生效时间戳。</p>
+          <p className="hint">所有密钥只在本机服务端保存；可点击各处「试听当前草稿」先行验证。</p>
         </aside>
       </div>
 

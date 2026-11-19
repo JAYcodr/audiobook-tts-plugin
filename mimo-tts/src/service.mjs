@@ -25,7 +25,7 @@ import { SetupManager } from './setup-manager.mjs'
 import { splitText, toRequests } from './split.mjs'
 import { concatWavs } from './wav.mjs'
 
-export const VERSION = '0.3.0'
+export const VERSION = '0.4.0'
 
 export class TtsService {
   /**

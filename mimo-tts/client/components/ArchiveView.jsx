@@ -1,9 +1,10 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 import { clamp, fmtBytes, fmtInt, hm, latQ, num, todayKeyUTC, weekdayOfDay } from '../format.js'
 import { sortedDays } from '../timeline-math.js'
 import { Rowx } from './Primitives.jsx'
 
-export function ArchiveView({ live, range, setRange, selectedDay, onSelectDay, onExportCsv }) {
+export function ArchiveView({ live, range, setRange, selectedDay, onSelectDay, onExportCsv, onResetMetrics }) {
+  const [confirmReset, setConfirmReset] = useState(false)
   const totals = live?.totals || {}
   const lat = live?.latency || {}
   const asc = useMemo(() => sortedDays(live?.days), [live])
@@ -124,8 +125,28 @@ export function ArchiveView({ live, range, setRange, selectedDay, onSelectDay, o
           <button className="btn" type="button" data-action="export-csv" onClick={onExportCsv}>
             导出 CSV · 日表
           </button>
+          {onResetMetrics ? (
+            confirmReset ? (
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button
+                  className="btn btn--sm btn--tape"
+                  type="button"
+                  onClick={() => { setConfirmReset(false); onResetMetrics() }}
+                >
+                  确认清空归档
+                </button>
+                <button className="btn btn--sm" type="button" onClick={() => setConfirmReset(false)}>
+                  取消
+                </button>
+              </div>
+            ) : (
+              <button className="btn btn--sm" type="button" onClick={() => setConfirmReset(true)}>
+                清空工程史
+              </button>
+            )
+          ) : null}
           <p className="hint" style={{ margin: 0 }}>
-            累计 = 服务启用以来（totals）；日带 = 按 UTC 自然日统计的合成音频秒数（days）。
+            累计已持久化至 metrics.json（保留 365 天，重启不丢）；日带按 UTC 自然日统计。
           </p>
         </div>
       </div>

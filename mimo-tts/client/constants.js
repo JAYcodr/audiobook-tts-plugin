@@ -22,6 +22,7 @@ export const CURL_SAMPLE = '瑞贝卡垂下眼皮，以掩饰自己眼中的疲�
 export const PREVIEW_SAMPLE = {
   narrator: '山道上起了雾，他把灯举高了一点。',
   dialogue: '“你终于来了，我等你很久了。”',
+  mixed: '夜深了，山道上起了雾。\n“你终于来了，我等你很久了。”他低声说。',
 }
 
 export const HINTS = {

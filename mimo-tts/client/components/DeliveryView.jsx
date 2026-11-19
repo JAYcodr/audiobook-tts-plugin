@@ -2,9 +2,13 @@ import React from 'react'
 import { BODY_TEXT, ERR_CODES, PROVIDER_CN } from '../constants.js'
 import { curlText, legadoPayload } from '../delivery.js'
 import { num } from '../format.js'
+import { PreviewPlayer } from './PreviewPlayer.jsx'
 import { Rowx } from './Primitives.jsx'
+import { QrCard } from './QrCard.jsx'
 
-export function DeliveryView({ service, config, importInfo, onCopy, onExportConfig, onPreview, previewBusy }) {
+export function DeliveryView({
+  service, config, importInfo, onCopy, onExportConfig, onOpenSetup, showToast,
+}) {
   const imp = importInfo || {}
   const cfg = config || {}
   const running = Boolean(service?.running)
@@ -54,7 +58,7 @@ export function DeliveryView({ service, config, importInfo, onCopy, onExportConf
         <p className="chain-note" style={{ margin: 0 }}>
           交付物 = 一条 Legado 在线朗读引擎。
           <br />
-          本机仍是唯一渲染源。
+          支持手机离线扫码或复制 URL 导入。
         </p>
         <ol className="steps">
           <li className="step">
@@ -67,22 +71,22 @@ export function DeliveryView({ service, config, importInfo, onCopy, onExportConf
           <li className="step">
             <span className="sn">02</span>
             <div>
-              <b>复制导入地址</b>
-              <span>或直接复制 JSON 文本（挂 Cloudflare Access 时用它）</span>
+              <b>扫码或复制地址</b>
+              <span>同 Wi-Fi 用「局域网扫码」；穿透公网用「公网导入码」</span>
             </div>
           </li>
           <li className="step">
             <span className="sn">03</span>
             <div>
               <b>在阅读里导入</b>
-              <span>朗读界面 → 设置 → 在线朗读 → 网络导入 → 粘贴</span>
+              <span>朗读界面 → 设置 → 在线朗读 → 网络导入 → 粘贴或识别文本</span>
             </div>
           </li>
           <li className="step">
             <span className="sn">04</span>
             <div>
-              <b>试一句话</b>
-              <span>点「试听一声」或用 curl 打 /listening，拿到真实时长 WAV 即通</span>
+              <b>在线交互试听</b>
+              <span>下方可直接合成旁白/对话/混排 WAV 验证音色与链路</span>
             </div>
           </li>
         </ol>
@@ -100,6 +104,25 @@ export function DeliveryView({ service, config, importInfo, onCopy, onExportConf
             <b>母带交付单</b>
           </div>
           <div className="dmeta">{dlvMeta}</div>
+        </div>
+
+        <div className="qr-grid" aria-label="离线导入二维码">
+          <QrCard
+            title="局域网扫码导入"
+            badge="LAN"
+            url={imp.jsonUrl}
+            copyKind="import"
+            onCopy={onCopy}
+          />
+          {publicJson ? (
+            <QrCard
+              title="公网穿透扫码导入"
+              badge="WAN"
+              url={publicJson}
+              copyKind="public-import"
+              onCopy={onCopy}
+            />
+          ) : null}
         </div>
 
         <div className="labelblock">
@@ -174,39 +197,31 @@ export function DeliveryView({ service, config, importInfo, onCopy, onExportConf
 
         <div className="labelblock">
           <div className="lb-hd">
-            <span className="silk">SMOKE TEST <b>试听与 curl 试一句</b></span>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button
-                className="btn btn--sm btn--tape"
-                type="button"
-                data-action="preview-narrator"
-                disabled={Boolean(previewBusy)}
-                onClick={() => onPreview('narrator')}
-              >
-                {previewBusy === 'narrator' ? '合成中…' : '试听旁白'}
-              </button>
-              <button
-                className="btn btn--sm"
-                type="button"
-                data-action="preview-dialogue"
-                disabled={Boolean(previewBusy)}
-                onClick={() => onPreview('dialogue')}
-              >
-                {previewBusy === 'dialogue' ? '合成中…' : '试听对话'}
-              </button>
-              <button className="btn btn--sm" type="button" data-copy="curl" onClick={() => onCopy('curl')}>
-                复制 curl
-              </button>
-            </div>
+            <span className="silk">SMOKE TEST <b>在线试听与 curl 验收</b></span>
+            <button className="btn btn--sm" type="button" data-copy="curl" onClick={() => onCopy('curl')}>
+              复制 curl
+            </button>
           </div>
-          <pre className="code" id="curlBlock">{curl}</pre>
+          <PreviewPlayer
+            draftPatch={null}
+            showToast={showToast}
+            defaultRole="narrator"
+            showRuleToggle={true}
+            title="已保存配置直接试听"
+          />
+          <pre className="code" id="curlBlock" style={{ marginTop: 8 }}>{curl}</pre>
         </div>
       </div>
 
       <aside className="dlv-right">
-        <div>
-          <h2>交付校验</h2>
-          <div className="sub">Preflight</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+          <div>
+            <h2>交付校验</h2>
+            <div className="sub">Preflight</div>
+          </div>
+          <button className="btn btn--sm" type="button" onClick={onOpenSetup}>
+            运行体检
+          </button>
         </div>
         <div className="checklist">
           {checks.map(([ok, label, value]) => (
@@ -241,7 +256,7 @@ export function DeliveryView({ service, config, importInfo, onCopy, onExportConf
           </button>
         </div>
         <p className="hint" style={{ marginTop: 'auto' }}>
-          挂 Cloudflare Access 时把服务令牌填进「渲染设置 · 传输 · 附加请求头」，Legado 才不会拿到登录页。
+          手机相机或 Legado 二维码识别可直接扫上方二维码（纯离线 SVG 生成，不经第三方服务器）。
         </p>
       </aside>
     </section>

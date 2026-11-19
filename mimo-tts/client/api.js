@@ -12,11 +12,13 @@ export async function api(path, init) {
   return json
 }
 
-export async function fetchPreviewWav({ text, role = 'narrator' }) {
+export async function fetchPreviewWav({ text, role = 'narrator', draft = null, applyTextRules = true }) {
+  const payload = { text, role, applyTextRules }
+  if (draft && typeof draft === 'object') payload.draft = draft
   const res = await fetch(`${API}/preview`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, role }),
+    body: JSON.stringify(payload),
   })
   if (!res.ok) {
     const bodyText = await res.text().catch(() => '')
@@ -32,3 +34,17 @@ export async function fetchPreviewWav({ text, role = 'narrator' }) {
     latencyMs: res.headers.get('X-Mimo-Latency-Ms') || '',
   }
 }
+
+export const previewTextApi = (payload) => api('/text/preview', { method: 'POST', body: JSON.stringify(payload) })
+export const fetchRefsApi = () => api('/refs')
+export const uploadRefApi = (payload) => api('/refs', { method: 'POST', body: JSON.stringify(payload) })
+export const updateRefApi = (id, payload) => api(`/refs/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) })
+export const deleteRefApi = (id) => api(`/refs/${encodeURIComponent(id)}`, { method: 'DELETE' })
+export const refAudioUrl = (id) => `${API}/refs/${encodeURIComponent(id)}/audio`
+
+export const fetchEnvDetectApi = () => api('/env/detect')
+export const runDoctorApi = (checkNetwork = false) => api('/doctor', { method: 'POST', body: JSON.stringify({ checkNetwork }) })
+export const fetchSetupStatusApi = (since = 0) => api(`/setup/status?since=${Number(since) || 0}`)
+export const startSetupTaskApi = (payload) => api('/setup/run', { method: 'POST', body: JSON.stringify(payload) })
+export const cancelSetupTaskApi = () => api('/setup/cancel', { method: 'POST' })
+export const resetMetricsApi = () => api('/metrics', { method: 'DELETE' })

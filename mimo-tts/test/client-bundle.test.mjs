@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import vm from 'node:vm'
-import { buildPatch, diffFields, fromConfig } from '../client/config-draft.js'
+import { buildDraftSnapshot, buildPatch, diffFields, fromConfig } from '../client/config-draft.js'
 import { buildTimeline, rulerTicks } from '../client/timeline-math.js'
 
 function createRenderReact(stateOverrides = {}) {
@@ -31,6 +31,34 @@ function createRenderReact(stateOverrides = {}) {
   }
   const resetHooks = () => { hookIdx = 0 }
   return { React, resetHooks }
+}
+
+function findNodes(node, pred, acc = []) {
+  if (!node || typeof node !== 'object') return acc
+  if (Array.isArray(node)) {
+    for (const item of node) findNodes(item, pred, acc)
+    return acc
+  }
+  if (pred(node)) acc.push(node)
+  if (node.props?.children) findNodes(node.props.children, pred, acc)
+  return acc
+}
+
+function collectText(node, out = []) {
+  if (node == null || typeof node === 'boolean') return out
+  if (typeof node === 'string' || typeof node === 'number') {
+    out.push(String(node))
+    return out
+  }
+  if (Array.isArray(node)) {
+    for (const it of node) collectText(it, out)
+    return out
+  }
+  if (node.props?.dangerouslySetInnerHTML?.__html) {
+    out.push(String(node.props.dangerouslySetInnerHTML.__html))
+  }
+  if (node.props?.children) collectText(node.props.children, out)
+  return out
 }
 
 function loadClientBundle(React) {
@@ -93,7 +121,7 @@ test('client.js 产物可在 DSH ModuleLoader 中加载并渲染全部工作面'
   assert.equal(Glyph({ size: 16 }).type, 'svg')
 
   const sampleState = {
-    service: { running: true, port: 8291, provider: 'openai', uptimeSec: 120, version: '0.3.0', hybrid: {}, openai: { ready: true, model: 'kokoro' } },
+    service: { running: true, port: 8291, provider: 'openai', uptimeSec: 120, version: '0.4.0', hybrid: {}, openai: { ready: true, model: 'kokoro' } },
     local: { state: 'disabled', enabled: false },
     live: {
       rpm: { used: 2, limit: 100, waiting: 0 },
@@ -106,9 +134,11 @@ test('client.js 产物可在 DSH ModuleLoader 中加载并渲染全部工作面'
       recent: [{ at: Date.now(), chars: 20, segments: 1, audioSeconds: 4, latencyMs: 500, role: 'narrator', source: 'openai', client: 'abc12345@192.168.1.2', text: '测试片段' }],
     },
     config: {
-      server: { host: '0.0.0.0', port: 8291, publicUrl: '' },
+      server: { host: '0.0.0.0', port: 8291, publicUrl: 'https://tts.example.com' },
       upstream: { provider: 'openai', keys: [], openai: { baseUrl: 'http://127.0.0.1:8880/v1', model: 'kokoro', narratorVoice: 'zf_xiaoxiao', dialogueVoice: 'zm_yunjian', responseFormat: 'wav', speed: 1 } },
-      voices: { narrator: { voice: '冰糖', style: '' }, dialogue: { voice: '苏打', style: '' } },
+      voices: { narrator: { mode: 'preset', voice: '冰糖', style: '' }, dialogue: { mode: 'preset', voice: '苏打', style: '' } },
+      voiceProfiles: { active: 'builtin:story-warm', items: [] },
+      textRules: { enabled: true, items: [] },
       synth: { maxSegmentChars: 100, maxTextChars: 10000, concurrency: 4, stream: false },
       cache: { enabled: true, maxEntries: 500, ttlSeconds: 7200 },
       auth: { enabled: true, user: 'admin', pass: '', token: 'tok-123' },
@@ -116,8 +146,18 @@ test('client.js 产物可在 DSH ModuleLoader 中加载并渲染全部工作面'
       limits: { rpm: 100 },
       log: { ring: 500 },
     },
-    import: { jsonUrl: 'http://127.0.0.1:8291/legado.json?token=tok-123', listenUrl: 'http://127.0.0.1:8291/listening?token=tok-123', lanUrls: ['http://192.168.1.10:8291'], hasToken: true },
+    import: {
+      jsonUrl: 'http://127.0.0.1:8291/legado.json?token=tok-123',
+      publicJsonUrl: 'https://tts.example.com/legado.json?token=tok-123',
+      listenUrl: 'http://127.0.0.1:8291/listening?token=tok-123',
+      lanUrls: ['http://192.168.1.10:8291'],
+      hasToken: true,
+    },
     presetVoices: ['冰糖', '苏打'],
+    builtinVoiceProfiles: [{ id: 'builtin:story-warm', name: '经典说书', builtin: true, voices: {} }],
+    builtinRulePresets: [{ id: 'preset:strip-ps', name: '过滤 PS', pattern: '^PS:.*$', replace: '', regex: true, flags: 'gim', scope: 'all', enabled: true }],
+    refs: [{ id: 'builtin:narrator-14s', name: '旁白女声 14s', builtin: true, exists: true, durationSec: 14.2, text: '测试文本' }],
+    setupSummary: { state: 'idle', platformSupported: true, readyForLocal: false },
   }
 
   // 加载中态 + 4 个工作面全部无异常渲染
@@ -136,10 +176,51 @@ test('client.js 产物可在 DSH ModuleLoader 中加载并渲染全部工作面'
     })
     const tree = viewRegs[0].entry.comp({})
     assert.equal(tree.props.className, 'mtt', `${view} 应渲染根容器`)
+
+    const flatText = collectText(tree).join(' ')
+    // 非 hybrid 模式下「混合」灯必须灭灯显示 OFF
+    const lamps = findNodes(tree, (n) => String(n.props?.className || '').includes('lamp'))
+    const hybridLamp = lamps.find((l) => collectText(l).join('').includes('混合'))
+    assert.ok(hybridLamp)
+    assert.ok(!hybridLamp.props.className.includes(' on'), '非 hybrid 模式下混合灯不能点亮')
+    assert.ok(collectText(hybridLamp).join('').includes('OFF'))
+
+    if (view === 'settings') {
+      assert.ok(flatText.includes('GROUP 01'))
+      assert.ok(flatText.includes('GROUP 02'))
+      assert.ok(flatText.includes('GROUP 03'))
+      assert.ok(flatText.includes('GROUP 04'))
+      assert.ok(flatText.includes('统一参考音库'))
+      assert.ok(flatText.includes('文本发音与断句规则'))
+      assert.ok(flatText.includes('PREVIEW DRAFT'))
+    }
+    if (view === 'delivery') {
+      assert.ok(flatText.includes('局域网扫码导入'))
+      assert.ok(flatText.includes('公网穿透扫码导入'))
+      assert.ok(flatText.includes('<svg xmlns="http://www.w3.org/2000/svg"'), 'uqr 应输出离线 SVG 二维码')
+    }
   }
+
+  // 未配置 MiMo Key 时展示可收起初始化引导条
+  const unconfiguredState = {
+    ...sampleState,
+    service: { ...sampleState.service, provider: 'mimo' },
+    config: { ...sampleState.config, upstream: { ...sampleState.config.upstream, provider: 'mimo', keys: [] } },
+  }
+  const warnReact = createRenderReact({ state: unconfiguredState, view: 'timeline' })
+  const warnMod = loadClientBundle(warnReact.React)
+  const warnRegs = []
+  warnMod.apply({
+    slots: {
+      inject(slotName, fn) { warnRegs.push({ slotName, entry: fn() }) },
+      register(meta, comp) { return { meta, comp } },
+    },
+  })
+  const warnTree = warnRegs[0].entry.comp({})
+  assert.ok(collectText(warnTree).join(' ').includes('MiMo 云端尚未填写 API Key'))
 })
 
-test('前端配置草稿保留旧掩码 Key 并支持追加新 Key 与 OpenAI 字段', () => {
+test('前端配置草稿保留旧掩码 Key 并支持 textRules / voiceProfiles / buildDraftSnapshot', () => {
   const applied = fromConfig({
     upstream: {
       provider: 'openai',
@@ -159,12 +240,22 @@ test('前端配置草稿保留旧掩码 Key 并支持追加新 Key 与 OpenAI �
     ...applied,
     'upstream.keys': 'sk-old…7890\nsk-new-key-999999',
     'upstream.openai.speed': '1.25',
+    'voices.narrator.mode': 'clone',
+    'voices.narrator.refId': 'builtin:narrator-14s',
+    'textRules.items': [{ id: 'r1', name: 'test', pattern: 'a', replace: 'b', scope: 'all', regex: false, enabled: true }],
   }
   const changes = diffFields(draft, applied)
   const { patch, problems } = buildPatch(draft, changes)
   assert.deepEqual(problems, [])
   assert.deepEqual(patch.upstream.keys, ['sk-old…7890', 'sk-new-key-999999'])
   assert.equal(patch.upstream.openai.speed, 1.25)
+  assert.equal(patch.voices.narrator.mode, 'clone')
+  assert.equal(patch.voices.narrator.refId, 'builtin:narrator-14s')
+  assert.equal(patch.textRules.items.length, 1)
+
+  const snap = buildDraftSnapshot(draft)
+  assert.equal(snap.voices.narrator.refId, 'builtin:narrator-14s')
+  assert.equal(snap.textRules.items[0].replace, 'b')
 })
 
 test('前端时间线数学函数处理 OpenAI 来源与空数据不产生 NaN', () => {

@@ -34,14 +34,24 @@ export const FIELDS = [
   { path: 'upstream.local.idleUnloadSeconds', label: '空闲卸载', module: 'local' },
   { path: 'upstream.local.startupTimeoutMs', label: '启动超时', module: 'local' },
   { path: 'upstream.local.requestTimeoutMs', label: '请求超时', module: 'local' },
-  { path: 'upstream.local.refs.narrator.wav', label: '旁白参考音', module: 'local' },
+  { path: 'upstream.local.refs.narrator.refId', label: '旁白参考音选择', module: 'local' },
+  { path: 'upstream.local.refs.narrator.wav', label: '旁白参考音路径', module: 'local' },
   { path: 'upstream.local.refs.narrator.text', label: '旁白参考文本', module: 'local' },
-  { path: 'upstream.local.refs.dialogue.wav', label: '对话参考音', module: 'local' },
+  { path: 'upstream.local.refs.dialogue.refId', label: '对话参考音选择', module: 'local' },
+  { path: 'upstream.local.refs.dialogue.wav', label: '对话参考音路径', module: 'local' },
   { path: 'upstream.local.refs.dialogue.text', label: '对话参考文本', module: 'local' },
+  { path: 'voices.narrator.mode', label: '旁白模式', module: 'voice' },
   { path: 'voices.narrator.voice', label: '旁白音色', module: 'voice' },
   { path: 'voices.narrator.style', label: '旁白风格', module: 'voice' },
+  { path: 'voices.narrator.refId', label: '旁白参考音', module: 'voice' },
+  { path: 'voices.dialogue.mode', label: '对话模式', module: 'voice' },
   { path: 'voices.dialogue.voice', label: '对话音色', module: 'voice' },
   { path: 'voices.dialogue.style', label: '对话风格', module: 'voice' },
+  { path: 'voices.dialogue.refId', label: '对话参考音', module: 'voice' },
+  { path: 'voiceProfiles.active', label: '音色方案', module: 'voice' },
+  { path: 'voiceProfiles.items', label: '自定义音色方案', module: 'voice' },
+  { path: 'textRules.enabled', label: '启用文本规则', module: 'lexicon' },
+  { path: 'textRules.items', label: '文本替换规则', module: 'lexicon' },
   { path: 'synth.maxSegmentChars', label: '每段字数', module: 'synth' },
   { path: 'synth.maxTextChars', label: '最长文本', module: 'synth' },
   { path: 'synth.concurrency', label: '合成并发', module: 'synth' },
@@ -70,10 +80,15 @@ export const NUMERIC_FIELDS = new Set([
 ])
 
 export const BOOL_FIELDS = new Set([
-  'upstream.hybrid.warmup', 'synth.stream', 'cache.enabled', 'auth.enabled',
+  'upstream.hybrid.warmup', 'synth.stream', 'cache.enabled', 'auth.enabled', 'textRules.enabled',
+])
+
+export const ARRAY_FIELDS = new Set([
+  'voiceProfiles.items', 'textRules.items',
 ])
 
 const str = (v, d = '') => (v == null ? d : String(v))
+const cloneArr = (arr) => (Array.isArray(arr) ? JSON.parse(JSON.stringify(arr)) : [])
 
 export function fromConfig(cfg) {
   const c = cfg || {}
@@ -88,6 +103,8 @@ export function fromConfig(cfg) {
   const voices = c.voices || {}
   const nv = voices.narrator || {}
   const dv = voices.dialogue || {}
+  const vp = c.voiceProfiles || {}
+  const tr = c.textRules || {}
   const synth = c.synth || {}
   const cache = c.cache || {}
   const auth = c.auth || {}
@@ -129,14 +146,24 @@ export function fromConfig(cfg) {
     'upstream.local.idleUnloadSeconds': str(lo.idleUnloadSeconds, '300'),
     'upstream.local.startupTimeoutMs': str(lo.startupTimeoutMs, '180000'),
     'upstream.local.requestTimeoutMs': str(lo.requestTimeoutMs, '180000'),
+    'upstream.local.refs.narrator.refId': str(nref.refId),
     'upstream.local.refs.narrator.wav': str(nref.wav),
     'upstream.local.refs.narrator.text': str(nref.text),
+    'upstream.local.refs.dialogue.refId': str(dref.refId),
     'upstream.local.refs.dialogue.wav': str(dref.wav),
     'upstream.local.refs.dialogue.text': str(dref.text),
+    'voices.narrator.mode': str(nv.mode, 'preset'),
     'voices.narrator.voice': str(nv.voice),
     'voices.narrator.style': str(nv.style),
+    'voices.narrator.refId': str(nv.refId),
+    'voices.dialogue.mode': str(dv.mode, 'preset'),
     'voices.dialogue.voice': str(dv.voice),
     'voices.dialogue.style': str(dv.style),
+    'voices.dialogue.refId': str(dv.refId),
+    'voiceProfiles.active': str(vp.active, 'builtin:story-warm'),
+    'voiceProfiles.items': cloneArr(vp.items),
+    'textRules.enabled': tr.enabled !== false,
+    'textRules.items': cloneArr(tr.items),
     'synth.maxSegmentChars': str(synth.maxSegmentChars, '100'),
     'synth.maxTextChars': str(synth.maxTextChars, '10000'),
     'synth.concurrency': str(synth.concurrency, '4'),
@@ -209,6 +236,10 @@ export function buildPatch(draft, changes) {
       setPath(patch, path, obj)
       continue
     }
+    if (ARRAY_FIELDS.has(path)) {
+      setPath(patch, path, Array.isArray(v) ? v : [])
+      continue
+    }
     if (BOOL_FIELDS.has(path)) {
       setPath(patch, path, Boolean(v))
       continue
@@ -227,8 +258,16 @@ export function buildPatch(draft, changes) {
   return { patch, problems }
 }
 
+/** 构造完整草稿补丁（供未保存态 /api/preview 与 /api/text/preview 试用） */
+export function buildDraftSnapshot(draft) {
+  if (!draft) return null
+  const { patch } = buildPatch(draft, FIELDS)
+  return patch
+}
+
 export function fmtDirtyVal(v) {
   if (typeof v === 'boolean') return v ? '开' : '关'
+  if (Array.isArray(v)) return `${v.length} 项`
   if (v == null || v === '') return '—'
   const s = String(v).replace(/\s+/g, ' ')
   return s.length > 34 ? `${s.slice(0, 32)}…` : s

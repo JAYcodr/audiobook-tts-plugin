@@ -50,10 +50,11 @@ export default [
         ecmaFeatures: { jsx: true },
       },
       globals: {
+        Audio: 'readonly',
         Blob: 'readonly',
+        FileReader: 'readonly',
         ResizeObserver: 'readonly',
         URL: 'readonly',
-        Audio: 'readonly',
         clearInterval: 'readonly',
         clearTimeout: 'readonly',
         document: 'readonly',

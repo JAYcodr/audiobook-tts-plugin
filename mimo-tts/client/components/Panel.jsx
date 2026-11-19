@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, fetchPreviewWav } from '../api.js'
+import { api, resetMetricsApi } from '../api.js'
 import { buildPatch, diffFields, fromConfig } from '../config-draft.js'
-import { BODY_TEXT, COPY_LABEL, HINTS, PREVIEW_SAMPLE, ROLE_CN } from '../constants.js'
+import { BODY_TEXT, COPY_LABEL, HINTS, ROLE_CN } from '../constants.js'
 import { curlText, download, legadoPayload, writeClipboard } from '../delivery.js'
 import { clamp, clock, deviceOf, latSec } from '../format.js'
 import deckCss from '../styles/deck.css'
@@ -9,6 +9,7 @@ import { buildTimeline, sortedDays } from '../timeline-math.js'
 import { ArchiveView } from './ArchiveView.jsx'
 import { DeliveryView } from './DeliveryView.jsx'
 import { SettingsView } from './SettingsView.jsx'
+import { SetupBanner, SetupDrawer } from './SetupDrawer.jsx'
 import { StatusBar } from './StatusBar.jsx'
 import { Inspector, TapeArea, TrackHeads } from './TimelineView.jsx'
 import { Transport } from './Transport.jsx'
@@ -21,7 +22,6 @@ export function Panel() {
   const [frozen, setFrozen] = useState(null)
   const [toast, setToast] = useState('')
   const [busy, setBusy] = useState('')
-  const [previewBusy, setPreviewBusy] = useState('')
   const [saving, setSaving] = useState(false)
   const [draft, setDraft] = useState(null)
   const [savedAt, setSavedAt] = useState('')
@@ -33,10 +33,11 @@ export function Panel() {
   const [hoverAt, setHoverAt] = useState(null)
   const [now, setNow] = useState(() => Date.now())
   const [lastSync, setLastSync] = useState(0)
+  const [setupOpen, setSetupOpen] = useState(false)
+  const [bannerDismissed, setBannerDismissed] = useState(false)
   const toastTimer = useRef(null)
   const syncedRef = useRef('')
   const rootObs = useRef(null)
-  const audioRef = useRef(null)
 
   const showToast = useCallback((text) => {
     setToast(text)
@@ -46,9 +47,6 @@ export function Panel() {
 
   useEffect(() => () => {
     if (toastTimer.current) clearTimeout(toastTimer.current)
-    if (audioRef.current) {
-      try { audioRef.current.pause() } catch { /* ignore */ }
-    }
   }, [])
 
   const refresh = useCallback(async () => {
@@ -124,6 +122,33 @@ export function Panel() {
     setDraft((d) => (d ? { ...d, [path]: value } : d))
   }, [])
 
+  const onSetBatch = useCallback((entries) => {
+    setDraft((d) => (d ? { ...d, ...entries } : d))
+  }, [])
+
+  const onRefsChange = useCallback((nextRefs) => {
+    setState((prev) => (prev ? { ...prev, refs: nextRefs } : prev))
+  }, [])
+
+  const applySetupPatch = useCallback(async (patch) => {
+    const next = await api('/config', { method: 'PUT', body: JSON.stringify(patch) })
+    setState(next)
+    const nextFlat = fromConfig(next?.config)
+    setDraft(nextFlat)
+    syncedRef.current = JSON.stringify(nextFlat)
+    setSavedAt(clock(Date.now()))
+  }, [])
+
+  const resetMetrics = useCallback(async () => {
+    try {
+      await resetMetricsApi()
+      await refresh()
+      showToast('已清空工程史统计数据')
+    } catch (err) {
+      showToast(`清空失败：${String(err?.message || err)}`)
+    }
+  }, [refresh, showToast])
+
   const act = useCallback(async (action) => {
     if (busy) return
     setBusy(action)
@@ -157,29 +182,6 @@ export function Panel() {
       setBusy('')
     }
   }, [busy, refresh, showToast])
-
-  const onPreview = useCallback(async (role = 'narrator') => {
-    if (previewBusy) return
-    setPreviewBusy(role)
-    try {
-      const text = PREVIEW_SAMPLE[role] || PREVIEW_SAMPLE.narrator
-      const { blob, source, durationS } = await fetchPreviewWav({ text, role })
-      const url = URL.createObjectURL(blob)
-      if (audioRef.current) {
-        try { audioRef.current.pause() } catch { /* ignore */ }
-      }
-      const audio = new Audio(url)
-      audioRef.current = audio
-      audio.onended = () => URL.revokeObjectURL(url)
-      audio.onerror = () => URL.revokeObjectURL(url)
-      await audio.play().catch(() => {})
-      showToast(`试听完成 · ${ROLE_CN[role] || role} · ${source || provider} · ${durationS || '?'}s`)
-    } catch (err) {
-      showToast(`试听失败：${String(err?.message || err)}`)
-    } finally {
-      setPreviewBusy('')
-    }
-  }, [previewBusy, provider, showToast])
 
   const togglePause = useCallback(() => {
     if (!running) {
@@ -420,14 +422,19 @@ export function Panel() {
         applied={appliedFlat}
         changes={changes}
         presetVoices={presetVoices}
+        builtinVoiceProfiles={state?.builtinVoiceProfiles}
+        builtinRulePresets={state?.builtinRulePresets}
+        refs={state?.refs}
+        onRefsChange={onRefsChange}
+        onOpenSetup={() => setSetupOpen(true)}
         saving={saving}
         savedAt={savedAt}
         onSet={onSet}
+        onSetBatch={onSetBatch}
         onSave={save}
         onRevert={revert}
         onExportConfig={exportConfig}
-        onPreview={onPreview}
-        previewBusy={previewBusy}
+        showToast={showToast}
       />
     )
   } else if (view === 'archive') {
@@ -439,6 +446,7 @@ export function Panel() {
         selectedDay={selectedDay}
         onSelectDay={(day) => setSelectedDay(day)}
         onExportCsv={exportCsv}
+        onResetMetrics={resetMetrics}
       />
     )
   } else {
@@ -449,8 +457,8 @@ export function Panel() {
         importInfo={state.import || {}}
         onCopy={onCopy}
         onExportConfig={exportConfig}
-        onPreview={onPreview}
-        previewBusy={previewBusy}
+        onOpenSetup={() => setSetupOpen(true)}
+        showToast={showToast}
       />
     )
   }
@@ -459,21 +467,31 @@ export function Panel() {
     <div className="mtt" ref={rootRef}>
       <style dangerouslySetInnerHTML={{ __html: deckCss }} />
       <div className="deck">
-        <Transport
-          service={service}
-          localInfo={localInfo}
-          live={live}
-          items={items}
-          totalAudio={tm.totalAudio}
-          view={view}
-          setView={setView}
-          paused={paused}
-          onPause={togglePause}
-          busy={busy}
-          act={act}
-          now={clockNow}
-          error={error}
-        />
+        <div className="tp-stack">
+          <Transport
+            service={service}
+            localInfo={localInfo}
+            live={live}
+            items={items}
+            totalAudio={tm.totalAudio}
+            view={view}
+            setView={setView}
+            paused={paused}
+            onPause={togglePause}
+            busy={busy}
+            act={act}
+            now={clockNow}
+            error={error}
+          />
+          <SetupBanner
+            setupSummary={state?.setupSummary}
+            config={config}
+            doctorReport={null}
+            dismissed={bannerDismissed}
+            onDismiss={() => setBannerDismissed(true)}
+            onOpenDrawer={() => setSetupOpen(true)}
+          />
+        </div>
         <main className="bench">{viewNode}</main>
         <StatusBar
           running={running}
@@ -487,6 +505,13 @@ export function Panel() {
           hint={hint}
         />
       </div>
+      <SetupDrawer
+        open={setupOpen}
+        onClose={() => setSetupOpen(false)}
+        onApplyPatch={applySetupPatch}
+        onRefreshState={refresh}
+        showToast={showToast}
+      />
       <div className={`toast${toast ? ' show' : ''}`} role="status" aria-live="polite">
         <span className="tdot" />
         <span>{toast}</span>

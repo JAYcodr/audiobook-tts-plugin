@@ -48,13 +48,21 @@ export function Transport({ service, localInfo, live, items, totalAudio, view, s
   const openai = service?.openai || {}
   const provider = service?.provider || 'mimo'
   const rpm = live?.rpm || {}
+  const isHybrid = provider === 'hybrid'
+  const usesLocal = provider === 'local' || isHybrid
   const localState = localInfo?.state || 'disabled'
   const localWarm = Boolean(localInfo?.warm) || localState === 'ready'
   const localStarting = localState === 'starting'
-  const localText = localWarm ? 'READY' : localStarting ? 'LOAD' : localState === 'error' ? 'ERR' : localState === 'disabled' ? 'OFF' : 'STOP'
+  const localText = !usesLocal
+    ? 'OFF'
+    : localWarm ? 'READY' : localStarting ? 'LOAD' : localState === 'error' ? 'ERR' : localState === 'disabled' ? 'OFF' : 'STOP'
   const cloudReady = provider === 'openai' ? Boolean(openai.ready) : Boolean(hybrid.cloudReady)
   const cloudLabel = provider === 'openai' ? 'OAI' : '云端'
-  const cloudVal = provider === 'openai' ? (running && openai.ready ? 'ON' : 'OFF') : (running && cloudReady ? 'STBY' : 'OFF')
+  const cloudVal = provider === 'openai'
+    ? (running && openai.ready ? 'ON' : 'OFF')
+    : provider === 'mimo'
+      ? (running && cloudReady ? 'ON' : 'OFF')
+      : (running && isHybrid && cloudReady ? 'STBY' : 'OFF')
   const busyName = busy || ''
   const transCls = ['transport']
   if (running) transCls.push('is-running', 'is-playing')
@@ -114,9 +122,13 @@ export function Transport({ service, localInfo, live, items, totalAudio, view, s
         <div className="tp-cell">
           <div className="lamps" aria-label="机器状态">
             <Lamp on={running} label="RUN" value={running ? hms(service?.uptimeSec) : '—'} />
-            <Lamp on={localWarm} label="本地" value={localText} warn={localStarting || localState === 'error'} />
+            <Lamp on={usesLocal && localWarm} label="本地" value={localText} warn={usesLocal && (localStarting || localState === 'error')} />
             <Lamp on={running && cloudReady} label={cloudLabel} value={cloudVal} />
-            <Lamp on={running} label="混合" value={`${num(hybrid.bootstrapCount)}/${num(hybrid.maxCloudBootstrap)}`} />
+            <Lamp
+              on={running && isHybrid}
+              label="混合"
+              value={isHybrid ? `${num(hybrid.bootstrapCount)}/${num(hybrid.maxCloudBootstrap)}` : 'OFF'}
+            />
           </div>
         </div>
 
