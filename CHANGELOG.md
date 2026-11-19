@@ -2,6 +2,15 @@
 
 所有显著改动均记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.5.1] - 2026-11-20
+
+### 新增
+- **配置 CLI（`audiobook-tts config` / `node mimo-tts/bin/config.mjs`）**：提供 `get` / `set` / `list` / `validate` / `export` / `import` / `doctor` 七个命令，支持点路径、数组索引、`--type` 强制值类型与 `--json`；`set` 构造点路径补丁后走 `Store.update`，复用 `validatePatch` / `sanitizeConfigPatch` 的全部校验与掩码还原，校验失败退出码 `2` 且不落盘。
+- **热更新联动**：`set` / `import` 成功后探测 `/health` 并 `PUT /api/config`（token 只出现在内部请求 URL，不进任何输出）；200 提示「已热更新」、422 打印服务端 problems、服务未运行时降级为「下次启动生效」；退出码 `3` 表示文件已写但热更新失败。
+- **导出 / 迁移与离线体检**：`export` 默认 `redact()` 脱敏（token 整段遮罩），`--include-secrets` 才写明文并在 stderr 警告；`import` 先做掩码还原与校验、支持 `--dry-run` 差异预览；`doctor --json` 检查配置可解析 / 校验通过 / 默认结构缺失 / 数据目录可写 / 端口与 `/health` / 本地引擎 venv 与声码器权重 / ffmpeg 与 cloudflared 等公网工具。
+- **DSH Host 工具与 skill**：`index.js` 注册 `audiobook_tts_config`（与 CLI 共用 `runConfigAction`；宿主没有 `@deepseek-ai/dsh-tools` 时用本地等价定义兜底，不影响插件激活），并附 `mimo-tts/skills/audiobook-tts-config/SKILL.md` 说明书。
+- **测试**：新增 `test/config-cli.test.mjs`，覆盖路径读取、合法 / 非法落盘、掩码还原、导出脱敏、导入往返与 `--dry-run`、热更新 200 / 422 / 未运行 / `--no-reload`、`doctor --json` 严格 JSON 与工具注册。
+
 ## [0.5.0] - 2026-11-19
 
 ### 新增

@@ -2,7 +2,7 @@
 
 给「阅读」(Legado) 以及支持 OpenAI TTS 接口的阅读软件（如 Readest）用的多引擎在线听书服务 + DSH 值守控制台。装进 DSH 后，侧栏会出现「听书值守」（时间线 / 渲染设置 / 工程史 / 交付四个工作面）；手机 Legado 只需粘贴导入地址或扫码即可听整本书：旁白与对话按引号自动分音色，默认返回长度真实的完整 WAV，阅读进度条与自动翻页精准同步。
 
-> 包名：`audiobook-tts-plugin` 0.5.0（兼容旧包身份/数据目录 `mimo-tts`） · MIT License
+> 包名：`audiobook-tts-plugin` 0.5.1（兼容旧包身份/数据目录 `mimo-tts`） · MIT License
 > 已验证环境：macOS（Apple Silicon）· DSH ≥ 0.2.x · Node ≥ 20
 > 仓库**不含任何密钥**，也**不含模型权重**。
 
@@ -51,9 +51,10 @@ audiobook-tts-plugin/
 │   ├── index.js              DSH 宿主半边（挂载 /mimo-tts 与 /audiobook-tts 路由）
 │   ├── client/               控制台模块化前端源码（React + deck.css）
 │   ├── client.js             构建产物（单文件，运行时零外部请求）
-│   ├── bin/                  独立运行入口（audiobook-tts.mjs / mimo-tts.mjs 兼容别名）
+│   ├── bin/                  独立运行入口（audiobook-tts.mjs / mimo-tts.mjs 兼容别名）与 config.mjs 配置 CLI
 │   ├── src/                  服务内核、OpenAI 服务端点、TunnelManager、切分、WAV 拼接与 providers/
 │   ├── sidecar/              本地 Qwen3-TTS Python/MLX 边车与锁定依赖
+│   ├── skills/               agent 说明书（audiobook-tts-config）
 │   ├── test/                 单元与 HTTP 集成测试（node --test）
 │   └── README.md             开发者架构、Provider 扩展与 API 文档
 ├── refs/                     默认旁白参考音（5s / 10s / 14s）与逐字文本
@@ -97,6 +98,33 @@ node mimo-tts/bin/audiobook-tts.mjs --port 8291 --data ./data
 3. 打开「交付」页可直接一键启停 **Quick Tunnel**（或按 [HTTPS-GUIDE.md](HTTPS-GUIDE.md) 选用 Tailscale Funnel / 命名隧道 / CF Worker+KV 中转），用手机直接扫**纯离线 SVG 二维码（LAN / WAN / Quick）**导入 Legado，或复制「OpenAI 兼容阅读软件接入单」。各方案要不要注册账号、去哪注册，指南每节开头都标了。
 
 详细安装、四路公网 HTTPS 方案与多场景排错请阅读 [INSTALL.md](INSTALL.md)、[HTTPS-GUIDE.md](HTTPS-GUIDE.md) 与 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)。
+
+---
+
+## 命令行改配置（agent 友好）
+
+`config.json` 有 40 多条校验规则、密钥字段还带掩码还原，而且改完文件不会自动生效。需要改配置时（尤其是让 AI 代劳），走 CLI，不要手写 JSON：
+
+```bash
+# 已装进 PATH / npm link 时
+audiobook-tts config get upstream.provider --json
+audiobook-tts config set upstream.provider hybrid
+audiobook-tts config list --group upstream
+audiobook-tts config validate
+audiobook-tts config export ./tts-config.json          # 默认脱敏
+audiobook-tts config import ./tts-config.json --dry-run # 先看差异
+audiobook-tts config doctor --json
+
+# 从仓库直接跑（不依赖 PATH）
+node mimo-tts/bin/config.mjs config doctor --json
+```
+
+- 读 / 改 / 校验 / 热更新 / 导出 / 迁移都在一个入口；`set` 校验失败退出码 `2` 且不落盘。
+- 服务在跑时 `set` / `import` 会自动 `PUT /api/config` 热更新；输出「已热更新」才算生效。
+- 导出默认把 Key / token / 口令换成掩码，只有 `--include-secrets` 才写明文（stderr 警告）。
+- 独立部署时加 `--data <数据目录>`；不传时找 DSH 插件数据目录（旧目录 `mimo-tts` 存在时优先）。
+- 退出码：`0` 成功、`1` 一般错误、`2` 校验失败、`3` 已写文件但热更新失败。
+- 装进 DSH 后还会注册 `audiobook_tts_config` 工具，模型可直接调用同一个实现；说明书在 `mimo-tts/skills/audiobook-tts-config/SKILL.md`。
 
 ---
 

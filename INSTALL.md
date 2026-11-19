@@ -159,6 +159,25 @@ curl -s http://127.0.0.1:8291/health
 
 ---
 
+## 4.5 用 CLI 改配置（可选，agent 推荐）
+
+让 AI 改配置时，别让它手写 `config.json`——用 CLI，校验、脱敏、热更新一次做完：
+
+```bash
+node <仓库绝对路径>/audiobook-tts-plugin/mimo-tts/bin/config.mjs config doctor --json
+node <仓库绝对路径>/audiobook-tts-plugin/mimo-tts/bin/config.mjs config set upstream.provider hybrid
+node <仓库绝对路径>/audiobook-tts-plugin/mimo-tts/bin/config.mjs config get upstream.provider --json
+```
+
+装进 PATH（`npm link` 或全局安装）后可以直接 `audiobook-tts config …`。
+
+- 数据目录：默认取 DSH 插件数据目录；独立运行（`node bin/audiobook-tts.mjs --data ./data`）时记得加 `--data ./data`。
+- 服务在跑时 `set` 会自动热更新；退出码 `3` 表示文件已写、服务拒绝或没连上，需要重启。
+- `export` 默认脱敏，`--include-secrets` 才写明文；`import` 支持 `--dry-run` 先看差异。
+- 完整命令、路径语法与退出码见 [README.md](README.md) 的「命令行改配置」一节，或跑 `config --help`。
+
+---
+
 ## 5. 接云端 MiMo（路线 A）
 
 ### 5.1 拿 Key
