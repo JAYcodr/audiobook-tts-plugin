@@ -1,0 +1,59 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8291,
+    "publicUrl": ""
+  },
+  "auth": {
+    "enabled": true,
+    "user": "hamelin",
+    "pass": "",
+    "token": ""
+  },
+  "upstream": {
+    "provider": "mimo",
+    "baseUrl": "https://api.xiaomimimo.com/v1",
+    "keys": [],
+    "model": "mimo-v2.5-tts",
+    "timeoutMs": 120000,
+    "maxRetry": 3,
+    "hybrid": {
+      "maxCloudBootstrap": 6,
+      "cloudConcurrency": 2,
+      "targetRms": 0.126,
+      "warmup": true
+    },
+    "local": {
+      "pythonPath": "",
+      "serverScript": "",
+      "modelPath": "",
+      "port": 8398,
+      "idleUnloadSeconds": 300,
+      "startupTimeoutMs": 180000,
+      "requestTimeoutMs": 180000,
+      "refs": {
+        "narrator": { "wav": "", "text": "" },
+        "dialogue": { "wav": "", "text": "" }
+      }
+    }
+  },
+  "voices": {
+    "narrator": { "mode": "preset", "voice": "冰糖", "style": "温润端庄的中文女声，有从容气度，适合旁白" },
+    "dialogue": { "mode": "preset", "voice": "苏打", "style": "沉稳自然的中文男声，语速适中" }
+  },
+  "synth": {
+    "maxSegmentChars": 100,
+    "maxTextChars": 10000,
+    "concurrency": 4,
+    "stream": false
+  },
+  "cache": {
+    "enabled": true,
+    "maxEntries": 500,
+    "maxBytes": 536870912,
+    "ttlSeconds": 7200
+  },
+  "legado": { "extraHeaders": {} },
+  "limits": { "rpm": 100 },
+  "log": { "ring": 500 }
+}

@@ -1,0 +1,104 @@
+/* 可读性覆盖：面板宽度下这套材质原本 6–10.5px 的字偏小、次要墨色偏淡。
+ * 由 tools/build-client.py 追加在 console.css 之后（同优先级、后写生效）。 */
+
+.mtt{
+  --ink-2: rgba(35, 36, 31, .78);
+  --ink-3: rgba(35, 36, 31, .62);
+  --bone-dim: rgba(233, 231, 218, .7);
+  --rule: rgba(35, 36, 31, .26);
+  --rule-2: rgba(35, 36, 31, .48);
+}
+
+.mtt .access-block h3{font-size:11.5px}
+.mtt .access-head h2 span{font-size:10.5px}
+.mtt .access-head p{font-size:12.5px}
+.mtt .access-note{font-size:12.5px}
+.mtt .autosave{font-size:10.5px}
+.mtt .b64 .field input{font-size:12.5px}
+.mtt .b64-out{font-size:12px}
+.mtt .brand span{font-size:10px}
+.mtt .breakdown h3 i{font-size:9.5px}
+.mtt .btn.small{font-size:12px}
+.mtt .chart-note{font-size:11.5px}
+.mtt .check .ct i{font-size:9.5px}
+.mtt .check em{font-size:11.5px}
+.mtt .checklist code{font-size:12px}
+.mtt .checklist li::before{font-size:11px}
+.mtt .chip{font-size:12.5px}
+.mtt .codeblock pre{font-size:12px}
+.mtt .derived{font-size:11px}
+.mtt .derived code{font-size:11px}
+.mtt .eyebrow{font-size:10px}
+.mtt .feed-grid-head{font-size:10px}
+.mtt .feed-tools{font-size:10.5px}
+.mtt .feedline{font-size:10.5px}
+.mtt .fh{font-size:12px}
+.mtt .figures{font-size:11.5px}
+.mtt .fl{font-size:11px}
+.mtt .fl i{font-size:9.5px}
+.mtt .lbl{font-size:11px}
+.mtt .lbl i{font-size:10px}
+.mtt .ledger em{font-size:11.5px}
+.mtt .linkbtn{font-size:11px}
+.mtt .live-stats .u{font-size:11px}
+.mtt .mini-btn{font-size:10.5px}
+.mtt .now-meta{font-size:11px}
+.mtt .rail-foot{font-size:10px}
+.mtt .rail-label{font-size:10px}
+.mtt .record-tools .chip{font-size:12px}
+.mtt .role-tag{font-size:10.5px}
+.mtt .row .c{font-size:10px}
+.mtt .row .l{font-size:11px}
+.mtt .row .r{font-size:10.5px}
+.mtt .row .t{font-size:11px}
+.mtt .sec-body h3{font-size:12px}
+.mtt .sec-body h3 i{font-size:10px}
+.mtt .sec-no{font-size:12px}
+.mtt .setup-head h2 span{font-size:10.5px}
+.mtt .setup-head p{font-size:12.5px}
+.mtt .sh-l span{font-size:10px}
+.mtt .sh-r{font-size:11px}
+.mtt .sheet-foot{font-size:10px}
+.mtt .side-note{font-size:10.5px}
+.mtt .slot-label{font-size:9.5px}
+.mtt .stamp-live{font-size:10.5px}
+.mtt .stepper span{font-size:12.5px}
+.mtt .tab b{font-size:11.5px}
+.mtt .tab i{font-size:9.5px}
+.mtt .tag{font-size:10px}
+.mtt .test-result{font-size:11px}
+.mtt .toast{font-size:12px}
+.mtt .topstate{font-size:11.5px}
+.mtt .tz{font-size:10px}
+.mtt table.contract td{font-size:12px}
+.mtt table.contract td code{font-size:12px}
+.mtt table.contract th{font-size:10.5px}
+.mtt table.errors td{font-size:12.5px}
+.mtt table.errors td:first-child{font-size:11.5px}
+.mtt table.errors td:last-child{font-size:11px}
+.mtt table.printed td.num{font-size:12px}
+.mtt table.printed td.share{font-size:11.5px}
+.mtt table.printed th{font-size:10px}
+
+.mtt .row .x{font-size:13.5px;line-height:1.6}
+.mtt .now-meta{font-size:10px}
+.mtt .contract td,.mtt .contract td code{font-size:11.5px}
+.mtt table.errors td{font-size:11.5px}
+
+
+/* 实时流水：来源列（本地/云端）。console.css 的画布是 5 列，这里补成 6 列。 */
+.mtt .feed-grid-head,
+.mtt .row{grid-template-columns:62px 44px 38px minmax(0, 1fr) 58px 46px}
+.mtt .feed-grid-head span:nth-child(2),
+.mtt .feed-grid-head span:nth-child(3),
+.mtt .feed-grid-head span:nth-child(4){text-align:left}
+.mtt .feed-grid-head span:nth-child(5),
+.mtt .feed-grid-head span:nth-child(6){text-align:right}
+.mtt .row .s{font-family:var(--mono); font-size:7.5px; letter-spacing:.04em; white-space:nowrap; color:var(--ink-3)}
+.mtt .row .s.local{color:var(--ok)}
+.mtt .row .s.cloud{color:var(--red)}
+
+@media (max-width: 900px){
+  .mtt .row{grid-template-columns:52px auto auto auto auto; grid-template-areas:"t r s c l" "x x x x x"}
+  .mtt .row .s{grid-area:s}
+}

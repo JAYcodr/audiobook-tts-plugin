@@ -1,0 +1,11 @@
+data/
+data-test/
+node_modules/
+*.log
+
+# 压测产物（可重跑，不入库）
+bench/runs/
+bench/__pycache__/
+bench/corpus/chapter01.tsv
+bench/corpus/webnovel14.tsv
+sidecar/__pycache__/
