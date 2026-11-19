@@ -8,7 +8,11 @@
 ## 三种使用形态
 
 ```bash
-# 1) DSH 插件形态（安装后自动挂载 /mimo-tts 与 /audiobook-tts 宿主路由与侧栏面板）
+# 1) DSH 插件形态（npm 安装，推荐）
+dsh plugin --profile desktop add audiobook-tts-plugin@^0.5.2
+# 升级
+dsh plugin --profile desktop update audiobook-tts-plugin
+# 本地开发时改用 link（改完代码立即生效）
 dsh plugin --profile desktop add link:/绝对路径/audiobook-tts-plugin/mimo-tts
 
 # 2) 独立 HTTP 服务（零运行时依赖，纯 Node >= 20）
@@ -19,6 +23,8 @@ node bin/mimo-tts.mjs --port 8291 --data ./data
 # 3) 作为库嵌入
 import { TtsService } from './src/service.mjs'
 ```
+
+发布到 npm 与让 DSH 更新的完整流程见 [../docs/RELEASE.md](../docs/RELEASE.md)。
 
 ### 向后兼容策略（`mimo-tts` → `audiobook-tts-plugin`）
 

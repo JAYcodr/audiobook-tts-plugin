@@ -75,12 +75,30 @@ audiobook-tts-plugin/
 
 ### 1) 安装进 DSH（推荐）
 
+从 npm 装已发布版本，不需要先 clone 仓库：
+
+```bash
+dsh plugin --profile desktop add audiobook-tts-plugin@^0.5.2
+```
+
+升级到新版本：
+
+```bash
+dsh plugin --profile desktop update audiobook-tts-plugin
+```
+
+然后**完全退出并重启 DSH**。
+
+要改代码、或想用仓库里的最新提交，再 clone 后用 `link:` 方式安装：
+
 ```bash
 mkdir -p ~/dsh-plugins
 git clone https://github.com/JAYcodr/audiobook-tts-plugin.git ~/dsh-plugins/audiobook-tts-plugin
 ```
 
-在 DSH 对话框中让 `plugin_manager` 安装 `~/dsh-plugins/audiobook-tts-plugin/mimo-tts`（或发送 [AI-SETUP-PROMPT.md](AI-SETUP-PROMPT.md) 全文给 AI 自动完成），然后**完全退出并重启 DSH**。
+在 DSH 对话框中让 `plugin_manager` 安装 `~/dsh-plugins/audiobook-tts-plugin/mimo-tts`（或发送 [AI-SETUP-PROMPT.md](AI-SETUP-PROMPT.md) 全文给 AI 自动完成）。
+
+发布与更新流程见 [docs/RELEASE.md](docs/RELEASE.md)。
 
 ### 2) 或者独立运行（不依赖 DSH，适合 NAS / Linux / Docker）
 

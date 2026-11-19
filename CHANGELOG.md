@@ -2,6 +2,15 @@
 
 所有显著改动均记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.5.2] - 2026-11-20
+
+### 修复
+- **npm 包缺少 `bin` 命令**：npm 11.12.1 在发布时会把带 `./` 前缀的 `bin` 路径判为 invalid 并静默移除（0.5.1 的 `audiobook-tts` / `mimo-tts` 命令因此没随包安装）。改为 `bin/audiobook-tts.mjs` / `bin/mimo-tts.mjs` 后恢复正常。
+
+### 文档
+- 新增 `docs/RELEASE.md`：发布与更新 runbook（版本号三处同步、2FA 发布、staged publishing、DSH 更新、回滚与常见问题）。
+- README / INSTALL / AI-SETUP-PROMPT 改为优先从 npm 安装与升级；`link:` 保留为本地开发方式。
+
 ## [0.5.1] - 2026-11-20
 
 ### 新增

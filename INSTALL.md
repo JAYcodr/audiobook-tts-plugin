@@ -37,6 +37,8 @@
 
 ## 1. 把文件放到固定的地方
 
+> 用下一节的 **npm 安装**方式可以跳过这里——只有 `link:` 本地安装才需要把仓库放到固定位置。
+
 挑一个**以后不会移动、不会删、不会同步到云盘再被清掉**的目录，clone 下来：
 
 ```bash
@@ -64,9 +66,31 @@ ls ~/dsh-plugins/audiobook-tts-plugin/refs/
 ### 2.1 首选：让 AI 装（最省事）
 
 把 [AI-SETUP-PROMPT.md](AI-SETUP-PROMPT.md) 里的整段内容复制，发给 DSH 里的 AI。
-它会用 `plugin_manager` 安装、重启、验证，并且只问你两件事：装哪个引擎、Key 是多少。
+它会用 `plugin_manager` / `dsh plugin` 安装（npm 或本地包）、重启、验证，并且只问你两件事：装哪个引擎、Key 是多少。
 
-### 2.2 手动：用 plugin_manager
+### 2.2 从 npm 安装（推荐给普通用户）
+
+不需要先 clone 仓库。装上 npm 上已发布的版本（把 `0.5.2` 换成你想装的版本）：
+
+```bash
+dsh plugin --profile desktop add audiobook-tts-plugin@^0.5.2
+```
+
+本机 `npm config get registry` 如果指向 npmmirror 之类的镜像，建议显式走官方源（镜像同步新版本可能滞后）：
+
+```bash
+dsh plugin --profile desktop add audiobook-tts-plugin@^0.5.2 --registry=https://registry.npmjs.org/
+```
+
+以后升级只要：
+
+```bash
+dsh plugin --profile desktop update audiobook-tts-plugin
+```
+
+再禁用/启用一次插件（或重启 DSH）即可。发布流程见 [docs/RELEASE.md](docs/RELEASE.md)。
+
+### 2.3 手动：用 plugin_manager（本地开发 / 离线包）
 
 在 DSH 里说：
 
@@ -76,7 +100,9 @@ ls ~/dsh-plugins/audiobook-tts-plugin/refs/
 profile 的依赖，并把 `audiobook-tts-plugin` 加进 `dsh.profile.bundles`（包里有
 `dsh.bundle.patch`，所以侧栏入口会跟着加载）。
 
-### 2.3 兜底：命令行
+> `link:` 方式适合改代码后立即验证；不跟着仓库走、需要稳定更新时用上面的 npm 方式。
+
+### 2.4 兜底：命令行
 
 如果 `plugin_manager` 报错（旧版本、或 workspace 相关报错），用 CLI：
 
@@ -112,7 +138,7 @@ dsh plugin --profile desktop add link:$HOME/dsh-plugins/audiobook-tts-plugin/mim
 grep -n "audiobook-tts-plugin" ~/.dsh/profiles/desktop/package.json
 ```
 
-应该能看到两处：`dependencies` 里的 `"audiobook-tts-plugin": "link:/.../audiobook-tts-plugin/mimo-tts"`，
+应该能看到两处：`dependencies` 里的 `"audiobook-tts-plugin": "^0.5.2"`（npm 安装）或 `"link:/.../audiobook-tts-plugin/mimo-tts"`（本地安装），
 和 `bundles` 里的 `"audiobook-tts-plugin"`。
 
 ---

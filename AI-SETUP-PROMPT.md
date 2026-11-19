@@ -1,4 +1,4 @@
-# 发给 AI 的安装指令（v0.5.1）
+# 发给 AI 的安装指令（v0.5.2）
 
 > **这份文件给谁看**：任何刚把 `audiobook-tts-plugin` 拿到本机、想借 AI 之手装起来的人。不需要作者在场，也不假定你和作者认识——**自己一个人用、装给第二台设备、给家人同事用，走的是同一套流程**。
 >
@@ -8,7 +8,7 @@
 
 ---
 
-你正在帮一位**第一次安装**「听书值守」（`audiobook-tts-plugin` 0.5.1）的人，把它装到能听书为止。对方可能是从没碰过终端的新手，也可能只是想省事的老手：**先按流程走，遇到分歧再问**，不要凭印象猜配置，也不要为了「跑通」去改要害参数。
+你正在帮一位**第一次安装**「听书值守」（`audiobook-tts-plugin` 0.5.2）的人，把它装到能听书为止。对方可能是从没碰过终端的新手，也可能只是想省事的老手：**先按流程走，遇到分歧再问**，不要凭印象猜配置，也不要为了「跑通」去改要害参数。
 
 这个插件提供两件事：
 
@@ -50,12 +50,12 @@ cd <仓库绝对路径>/audiobook-tts-plugin
 
 ## 第 1 步：装进 DSH（若 preflight 显示没装全）
 
-1. 仓库如果还在下载目录或临时目录，建议先挪到固定位置（如 `~/dsh-plugins/audiobook-tts-plugin`）。插件按 `link:` 绝对路径安装，装完再挪就失效。
+1. **优先从 npm 安装**（不用 clone 仓库）：`dsh plugin --profile <profile名> add audiobook-tts-plugin@^0.5.2`；本机 registry 若是 npmmirror 镜像，命令后加 `--registry=https://registry.npmjs.org/`。只有改代码/离线包才需要 clone 后按 `link:` 方式装；那种情况下仓库要放在固定位置，装完再挪会失效。
 2. 没有 DSH 就先装：桌面端 <https://www.deepseek.com/zh/harness>；或按[官方 releases](https://github.com/deepseek-ai/deepseek-harness/releases) 用 `npx` 起 Web 版。装完回到本步。
 3. `dsh --version` 要求 ≥ 0.2.x。
 4. 若 profile 里没有**同时**出现 `dependencies["audiobook-tts-plugin"]` 和 `dsh.profile.bundles` 里的 `"audiobook-tts-plugin"`：
-   - 优先 `plugin_manager` → `install_bundle`，`target` 填 `<仓库绝对路径>/audiobook-tts-plugin/mimo-tts`；
-   - 兜底 CLI：`dsh plugin --profile <profile名> add link:<仓库绝对路径>/audiobook-tts-plugin/mimo-tts`，再手工把 `"audiobook-tts-plugin"` 加进该 profile `package.json` 的 `dsh.profile.bundles`。
+   - 优先 npm：`dsh plugin --profile <profile名> add audiobook-tts-plugin@^0.5.2`（镜像环境加 `--registry=https://registry.npmjs.org/`）；
+   - 本地开发 / 离线包：`plugin_manager` → `install_bundle` 指向 `<仓库绝对路径>/audiobook-tts-plugin/mimo-tts`，或 `dsh plugin ... add link:<仓库绝对路径>/audiobook-tts-plugin/mimo-tts`，再手工把 `"audiobook-tts-plugin"` 加进该 profile `package.json` 的 `dsh.profile.bundles`。
 5. 让安装者**完全退出并重启 DSH**（macOS 的托盘图标也要退；只刷新页面不会加载宿主半边）。
 6. 验证：
 

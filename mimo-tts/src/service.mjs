@@ -27,7 +27,7 @@ import { splitText, toRequests } from './split.mjs'
 import { TunnelManager } from './tunnel-manager.mjs'
 import { concatWavs } from './wav.mjs'
 
-export const VERSION = '0.5.1'
+export const VERSION = '0.5.2'
 
 export class TtsService {
   /**
