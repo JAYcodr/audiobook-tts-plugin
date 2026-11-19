@@ -1,41 +1,64 @@
 {
-  "name": "@local/mimo-tts",
-  "version": "0.2.0",
-  "private": true,
+  "name": "audiobook-tts-plugin",
+  "version": "0.3.0",
   "type": "module",
-  "description": "MiMo TTS 在线听书服务：给 Legado（阅读）用的 TTS 代理 + 值守控制台，一个插件即一个可独立运行的服务。",
+  "description": "听书值守（Audiobook TTS）：给 Legado（阅读）用的多引擎 TTS 代理 + 值守控制台（支持本地 Qwen3-TTS / OpenAI 兼容 / MiMo 云端 / 混合启动）。",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "audiobook",
+    "tts",
+    "legado",
+    "mlx",
+    "qwen3-tts",
+    "openai-tts"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JAYcodr/audiobook-tts-plugin.git"
+  },
+  "homepage": "https://github.com/JAYcodr/audiobook-tts-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/JAYcodr/audiobook-tts-plugin/issues"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
     "./server": "./src/service.mjs",
-    "./bin": "./bin/mimo-tts.mjs",
+    "./bin": "./bin/audiobook-tts.mjs",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
   "files": [
     "index.js",
     "client.js",
-    "client.template.js",
-    "src/*.mjs",
-    "src/*.css",
+    "client/",
+    "src/**/*.mjs",
     "bin/*.mjs",
-    "tools/*.py",
+    "tools/*.mjs",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
     "README.md",
     "docs/*.png",
-    "sidecar/*"
+    "sidecar/server.py",
+    "sidecar/requirements.txt",
+    "sidecar/README.md"
   ],
   "bin": {
+    "audiobook-tts": "./bin/audiobook-tts.mjs",
     "mimo-tts": "./bin/mimo-tts.mjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
-    "start": "node bin/mimo-tts.mjs",
-    "test": "node --test test/*.test.mjs"
+    "start": "node bin/audiobook-tts.mjs",
+    "build:client": "node tools/build-client.mjs",
+    "lint": "eslint .",
+    "check:secrets": "node tools/check-secrets.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "npm run lint && npm run check:secrets && npm run build:client && npm test"
   },
   "dsh": {
     "bundle": {
@@ -50,5 +73,9 @@
       ]
     }
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "eslint": "10.15.0"
+  }
 }

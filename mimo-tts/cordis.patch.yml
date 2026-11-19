@@ -1,7 +1,6 @@
-# mimo-tts bundle layer.
+# audiobook-tts-plugin bundle layer.
 #
-# 一行：拥有包身份，让宿主半边（index.js）挂上 /mimo-tts 路由与服务生命周期，
-# 同时让 package.json 里 dsh.client 声明的浏览器半边加载侧栏入口与页面。
+# 保留 id: mimo-tts 以兼容已有 profile；name 必须与 package.json 的 name 一致。
 - insert:
     - id: mimo-tts
-      name: '@local/mimo-tts'
+      name: audiobook-tts-plugin
