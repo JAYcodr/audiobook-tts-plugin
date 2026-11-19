@@ -19,6 +19,7 @@ import {
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
+import { expandHomePath } from './paths.mjs'
 
 const DEFAULT_SCRIPT = fileURLToPath(new URL('../sidecar/server.py', import.meta.url))
 const MAX_LOG_BYTES = 2 * 1024 * 1024
@@ -30,10 +31,11 @@ export const DEFAULT_MIN_MODEL_BYTES = 500_000_000
  * 必须存在 config.json、主权重（model.safetensors 或分片索引）以及声码器权重
  * `speech_tokenizer/model.safetensors`（>= 600MB，缺失会导致 mlx-audio 静默使用随机权重输出噪声）。
  */
-export function validateModelDir(modelPath, {
+export function validateModelDir(rawModelPath, {
   minVocoderBytes = DEFAULT_MIN_VOCODER_BYTES,
   minModelBytes = DEFAULT_MIN_MODEL_BYTES,
 } = {}) {
+  const modelPath = expandHomePath(rawModelPath)
   if (!modelPath) throw new LocalError('本地引擎缺少模型目录（upstream.local.modelPath）', 'not_configured')
   if (!existsSync(modelPath)) throw new LocalError(`模型目录不存在：${modelPath}`, 'missing_model')
   if (!statSync(modelPath).isDirectory()) throw new LocalError(`模型路径不是目录：${modelPath}`, 'missing_model')
@@ -220,13 +222,15 @@ export class LocalEngine {
     this.instanceId = instanceId
     this.port = port
 
-    const script = cfg.serverScript ? resolve(cfg.serverScript) : this.scriptPath
+    const script = cfg.serverScript ? resolve(expandHomePath(cfg.serverScript)) : this.scriptPath
     if (!existsSync(script)) throw new LocalError(`sidecar 脚本不存在：${script}`, 'missing_script')
+    const pythonPath = expandHomePath(cfg.pythonPath)
+    const modelPath = expandHomePath(cfg.modelPath)
     const idle = Math.max(0, Number(cfg.idleUnloadSeconds) || 0)
     const fallbackIdle = idle > 0 ? idle + 30 : 0
     const args = [
       script,
-      '--model', cfg.modelPath,
+      '--model', modelPath,
       '--refs', refsPath,
       '--host', '127.0.0.1',
       '--port', String(port),
@@ -235,8 +239,8 @@ export class LocalEngine {
       '--instance-id', instanceId,
       '--log', join(this.dataDir, 'local-engine.jsonl'),
     ]
-    this.log(`[local] 启动 sidecar ${cfg.pythonPath} ${script} :${port}`)
-    const proc = spawn(cfg.pythonPath, args, {
+    this.log(`[local] 启动 sidecar ${pythonPath} ${script} :${port}`)
+    const proc = spawn(pythonPath, args, {
       cwd: this.dataDir,
       env: { ...process.env, PYTHONUNBUFFERED: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -313,22 +317,25 @@ export class LocalEngine {
   }
 
   #validate(cfg) {
-    if (!cfg.pythonPath) throw new LocalError('本地引擎缺少 Python 路径（upstream.local.pythonPath）', 'not_configured')
-    if (!existsSync(cfg.pythonPath)) throw new LocalError(`Python 不存在：${cfg.pythonPath}`, 'missing_python')
+    const pythonPath = expandHomePath(cfg.pythonPath)
+    if (!pythonPath) throw new LocalError('本地引擎缺少 Python 路径（upstream.local.pythonPath）', 'not_configured')
+    if (!existsSync(pythonPath)) throw new LocalError(`Python 不存在：${pythonPath}`, 'missing_python')
     validateModelDir(cfg.modelPath, {
       minVocoderBytes: this.minVocoderBytes,
       minModelBytes: this.minModelBytes,
     })
     const ref = cfg.refs?.narrator
-    if (!ref?.wav || !ref?.text) throw new LocalError('本地引擎缺少旁白参考音（wav + text）', 'missing_ref')
-    if (!existsSync(ref.wav)) throw new LocalError(`旁白参考音不存在：${ref.wav}`, 'missing_ref')
+    const refWav = expandHomePath(ref?.wav)
+    if (!refWav || !ref?.text) throw new LocalError('本地引擎缺少旁白参考音（wav + text）', 'missing_ref')
+    if (!existsSync(refWav)) throw new LocalError(`旁白参考音不存在：${refWav}`, 'missing_ref')
   }
 
   #writeRefs(path, cfg) {
     const refs = {}
     for (const role of ['narrator', 'dialogue']) {
       const r = cfg.refs?.[role]
-      if (r?.wav && r?.text) refs[role] = { wav: r.wav, text: r.text }
+      const wav = expandHomePath(r?.wav)
+      if (wav && r?.text) refs[role] = { wav, text: r.text }
     }
     const tmp = `${path}.tmp`
     writeFileSync(tmp, JSON.stringify(refs, null, 2))

@@ -14,6 +14,7 @@ import { extname } from 'node:path'
 import { createHash } from 'node:crypto'
 import { ProviderError, TTSProvider } from './base.mjs'
 import { cacheKey } from '../cache.mjs'
+import { expandHomePath } from '../paths.mjs'
 import { parseWav, silentWav, streamingWavHeader } from '../wav.mjs'
 
 const MAX_STREAM_BYTES = 64 * 1024 * 1024
@@ -73,8 +74,10 @@ export class MimoClient {
   }
 
   /** 把参考音读成 MiMo clone 要的 data URL；按路径缓存，配置变更时 clearSamples()。 */
-  sampleDataUrl(path) {
+  sampleDataUrl(rawPath) {
+    const path = expandHomePath(rawPath)
     if (!path) throw new UpstreamError('缺少克隆参考音路径')
+    if (path.startsWith('data:')) return path
     const hit = this.samples.get(path)
     if (hit) return hit
     let buf

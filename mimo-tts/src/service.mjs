@@ -6,6 +6,7 @@
  * 不 import 任何 DSH 宿主依赖，既可作为插件内核，也可 `node bin/audiobook-tts.mjs` 独立运行。
  */
 import { createServer } from 'node:http'
+import { join } from 'node:path'
 import { authorized, clientKeyOf } from './auth.mjs'
 import { AudioCache } from './cache.mjs'
 import { createControlHandler } from './control-api.mjs'
@@ -30,7 +31,13 @@ export class TtsService {
   constructor({ store, log }) {
     this.store = store
     this.log = log || ((line) => console.log(line))
-    this.metrics = new Metrics(store.config.log.ring)
+    const metricsFile = store.dataDir ? join(store.dataDir, 'metrics.json') : ''
+    this.metrics = new Metrics({
+      ringSize: store.config.log.ring,
+      filePath: metricsFile,
+      log: this.log,
+    })
+    this.metrics.load()
     this.cache = new AudioCache(() => this.store.config.cache)
     this.gate = new RpmGate(() => this.store.config.limits.rpm)
 
@@ -133,6 +140,7 @@ export class TtsService {
   }
 
   async stop() {
+    this.metrics.flush()
     await this.registry.shutdown()
     return this.stopServer()
   }

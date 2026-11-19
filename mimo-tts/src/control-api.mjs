@@ -186,6 +186,12 @@ export function createControlHandler({ service, requireAuth = false }) {
       return true
     }
 
+    if (path === '/api/metrics' && req.method === 'DELETE') {
+      service.metrics.reset()
+      sendJson(res, 200, { ok: true, ...service.metrics.snapshot() })
+      return true
+    }
+
     return false
   }
 }

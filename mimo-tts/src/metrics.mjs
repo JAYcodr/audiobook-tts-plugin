@@ -1,10 +1,24 @@
 /**
- * 计数、流水、限速闸门。
+ * 计数、流水、限速闸门与工程史原子持久化。
  *
  * 三件事都服务于同一个目的：**让「现在到底在发生什么」可读**。
- * 控制台的值守页、/api/live、以及「快到 100 RPM 就排队而不是吃 429」
- * 全从这一个对象取数。
+ * 控制台的值守页、/api/live、工程史 365 天记录、以及 RPM 闸门全从这一个对象取数。
  */
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+
+const MAX_PERSIST_DAYS = 365
+const MAX_PERSIST_CLIENTS = 50
+const EMPTY_TOTALS = () => ({
+  requests: 0,
+  segments: 0,
+  chars: 0,
+  bytes: 0,
+  seconds: 0,
+  errors: 0,
+  cacheHits: 0,
+  latencyMs: 0,
+})
 
 const dayKey = (t = Date.now()) => new Date(t).toISOString().slice(0, 10)
 
@@ -44,17 +58,155 @@ export class RpmGate {
 }
 
 export class Metrics {
-  constructor(ringSize = 500) {
-    this.ringSize = ringSize
+  /**
+   * @param {number|{ringSize?:number,filePath?:string,flushDebounceMs?:number,log?:(s:string)=>void}} [opts]
+   */
+  constructor(opts = 500) {
+    const o = typeof opts === 'number' ? { ringSize: opts } : (opts || {})
+    this.ringSize = Math.max(10, Number(o.ringSize) || 500)
+    this.filePath = o.filePath || ''
+    this.backupFile = this.filePath ? `${this.filePath}.bak` : ''
+    this.flushDebounceMs = o.flushDebounceMs ?? 5000
+    this.log = o.log || null
+    this.saveTimer = null
     this.startedAt = Date.now()
     this.recent = []
     this.days = new Map()
     this.active = new Map()
     this.clients = new Map()
-    this.totals = {
-      requests: 0, segments: 0, chars: 0, bytes: 0, seconds: 0,
-      errors: 0, cacheHits: 0, latencyMs: 0,
+    this.totals = EMPTY_TOTALS()
+  }
+
+  /** 启动时从磁盘恢复统计历史（主文件损坏或丢失时自动从 .bak 恢复）。 */
+  load() {
+    if (!this.filePath) return this
+    let data = null
+    try {
+      data = JSON.parse(readFileSync(this.filePath, 'utf8'))
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        try { renameSync(this.filePath, `${this.filePath}.broken-${Date.now()}`) } catch { /* ignore */ }
+      }
+      if (this.backupFile) {
+        try {
+          data = JSON.parse(readFileSync(this.backupFile, 'utf8'))
+          this.log?.(`[metrics] 主统计缺失或损坏，已从 ${this.backupFile} 恢复`)
+        } catch { /* 无可用备份，全新开始 */ }
+      }
     }
+    if (!data || typeof data !== 'object') return this
+
+    const t = data.totals || {}
+    this.totals = {
+      requests: Number(t.requests) || 0,
+      segments: Number(t.segments) || 0,
+      chars: Number(t.chars) || 0,
+      bytes: Number(t.bytes) || 0,
+      seconds: Number(t.seconds) || 0,
+      errors: Number(t.errors) || 0,
+      cacheHits: Number(t.cacheHits) || 0,
+      latencyMs: Number(t.latencyMs) || 0,
+    }
+
+    this.days = new Map()
+    if (data.days && typeof data.days === 'object') {
+      const sorted = Object.entries(data.days)
+        .filter(([k, v]) => /^\d{4}-\d{2}-\d{2}$/.test(k) && v && typeof v === 'object')
+        .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+        .slice(0, MAX_PERSIST_DAYS)
+      for (const [day, d] of sorted) {
+        this.days.set(day, {
+          requests: Number(d.requests) || 0,
+          segments: Number(d.segments) || 0,
+          chars: Number(d.chars) || 0,
+          bytes: Number(d.bytes) || 0,
+          seconds: Number(d.seconds) || 0,
+          errors: Number(d.errors) || 0,
+        })
+      }
+    }
+
+    this.clients = new Map()
+    if (Array.isArray(data.clients)) {
+      for (const c of data.clients.slice(0, MAX_PERSIST_CLIENTS)) {
+        if (c && c.key) {
+          this.clients.set(String(c.key), {
+            key: String(c.key),
+            requests: Number(c.requests) || 0,
+            segments: Number(c.segments) || 0,
+            seconds: Number(c.seconds) || 0,
+            chars: Number(c.chars) || 0,
+            lastAt: Number(c.lastAt) || 0,
+            text: String(c.text || ''),
+            role: String(c.role || ''),
+          })
+        }
+      }
+    }
+
+    this.recent = Array.isArray(data.recent) ? data.recent.slice(-this.ringSize) : []
+    return this
+  }
+
+  scheduleSave() {
+    if (!this.filePath) return
+    if (this.flushDebounceMs <= 0) {
+      this.flush()
+      return
+    }
+    if (this.saveTimer) return
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null
+      this.flush()
+    }, this.flushDebounceMs)
+    this.saveTimer.unref?.()
+  }
+
+  /** 原子写盘（tmp → rename + .bak）。 */
+  flush() {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer)
+      this.saveTimer = null
+    }
+    if (!this.filePath) return false
+    try {
+      mkdirSync(dirname(this.filePath), { recursive: true })
+      const prunedDays = [...this.days.entries()]
+        .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+        .slice(0, MAX_PERSIST_DAYS)
+      this.days = new Map(prunedDays)
+
+      const sortedClients = [...this.clients.values()]
+        .sort((a, b) => b.lastAt - a.lastAt)
+        .slice(0, MAX_PERSIST_CLIENTS)
+      this.clients = new Map(sortedClients.map((c) => [c.key, c]))
+
+      const payload = JSON.stringify({
+        version: 1,
+        savedAt: Date.now(),
+        totals: this.totals,
+        days: Object.fromEntries(prunedDays),
+        clients: sortedClients,
+        recent: this.recent.slice(-this.ringSize),
+      }, null, 2)
+      const tmp = `${this.filePath}.tmp`
+      writeFileSync(tmp, payload)
+      renameSync(tmp, this.filePath)
+      try { writeFileSync(this.backupFile, payload) } catch { /* 备份写入失败不影响主流程 */ }
+      return true
+    } catch (err) {
+      this.log?.(`[warn] 统计写盘失败：${err?.message || err}`)
+      return false
+    }
+  }
+
+  reset() {
+    this.recent = []
+    this.days.clear()
+    this.active.clear()
+    this.clients.clear()
+    this.totals = EMPTY_TOTALS()
+    this.flush()
   }
 
   /** 一次 /listening 请求结束时调用 */
@@ -82,7 +234,6 @@ export class Metrics {
     if (ev.error) d.errors++
     this.days.set(dayKey(t), d)
 
-    // 按客户端累计：值守页的「谁在读、本机听多久」都从这里来
     if (ev.client) {
       const c = this.clients.get(ev.client) || {
         key: ev.client, requests: 0, segments: 0, seconds: 0, chars: 0, lastAt: 0, text: '', role: '',
@@ -96,6 +247,7 @@ export class Metrics {
       if (ev.role) c.role = ev.role
       this.clients.set(ev.client, c)
     }
+    this.scheduleSave()
     return item
   }
 
