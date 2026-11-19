@@ -25,13 +25,25 @@ export const DEFAULTS = {
     token: '',
   },
   upstream: {
-    // mimo = 小米云 API；local = 本机 Qwen3-TTS sidecar（macOS/MLX）
+    // mimo = 小米云 API；local = 本机 Qwen3-TTS sidecar；hybrid = 混合启动；openai = OpenAI 兼容 TTS (/v1/audio/speech)
     provider: 'mimo',
     baseUrl: 'https://api.xiaomimimo.com/v1',
     keys: [],
     model: 'mimo-v2.5-tts',
     timeoutMs: 120000,
     maxRetry: 3,
+    openai: {
+      baseUrl: 'https://api.openai.com/v1',
+      apiKey: '',
+      model: 'tts-1',
+      narratorVoice: 'alloy',
+      dialogueVoice: 'echo',
+      responseFormat: 'wav',
+      speed: 1.0,
+      instructions: '',
+      timeoutMs: 60000,
+      maxRetry: 2,
+    },
     // 混合启动：冷启动前几段用 MiMo 克隆顶住，同时后台把本地模型焐热，热了切本地。
     hybrid: {
       maxCloudBootstrap: 6,
@@ -76,6 +88,7 @@ export const DEFAULTS = {
   },
   // 导出的 Legado 引擎里附带的自定义请求头（例如 Cloudflare Access 服务令牌）
   legado: {
+    name: '听书值守 TTS',
     extraHeaders: {},
   },
   limits: {
@@ -160,6 +173,18 @@ export function sanitizeConfigPatch(patch, currentConfig) {
     }
   }
 
+  if (cleanPatch.upstream?.openai && typeof cleanPatch.upstream.openai === 'object') {
+    const apiKey = cleanPatch.upstream.openai.apiKey
+    if (typeof apiKey === 'string' && isMaskedSecret(apiKey)) {
+      const existingApiKey = String(currentConfig?.upstream?.openai?.apiKey || '')
+      if (existingApiKey && apiKey === maskKey(existingApiKey)) {
+        delete cleanPatch.upstream.openai.apiKey
+      } else {
+        problems.push('upstream.openai.apiKey 包含无效的掩码字符，请填写完整密钥')
+      }
+    }
+  }
+
   if (cleanPatch.auth && typeof cleanPatch.auth === 'object' && typeof cleanPatch.auth.pass === 'string') {
     if (isMaskedSecret(cleanPatch.auth.pass)) {
       const existingPass = String(currentConfig?.auth?.pass || '')
@@ -205,6 +230,13 @@ const ENV_KEYS = {
   'MIMO_API_KEYS': (c, v) => { c.upstream.keys = v.split(',').map(s => s.trim()).filter(Boolean) },
   'MIMO_BASE_URL': (c, v) => { c.upstream.baseUrl = v },
   'MIMO_MODEL': (c, v) => { c.upstream.model = v },
+  'OPENAI_TTS_BASE_URL': (c, v) => { c.upstream.openai.baseUrl = v },
+  'OPENAI_TTS_API_KEY': (c, v) => { c.upstream.openai.apiKey = v },
+  'OPENAI_TTS_MODEL': (c, v) => { c.upstream.openai.model = v },
+  'OPENAI_TTS_VOICE': (c, v) => { c.upstream.openai.narratorVoice = v },
+  'OPENAI_TTS_DIALOGUE_VOICE': (c, v) => { c.upstream.openai.dialogueVoice = v },
+  'OPENAI_TTS_FORMAT': (c, v) => { c.upstream.openai.responseFormat = v },
+  'OPENAI_TTS_SPEED': (c, v) => { c.upstream.openai.speed = Number(v) },
   'TTS_AUTH_USER': (c, v) => { c.auth.user = v },
   'TTS_AUTH_PASS': (c, v) => { c.auth.pass = v },
   'NARRATOR_VOICE': (c, v) => { c.voices.narrator.voice = v },
@@ -243,7 +275,28 @@ export function validate(cfg) {
   if (!Number.isInteger(n) || n < 10 || n > 300) problems.push('synth.maxSegmentChars 必须是 10–300')
 
   const provider = cfg.upstream?.provider
-  if (!['mimo', 'local', 'hybrid'].includes(provider)) problems.push('upstream.provider 必须是 mimo / local / hybrid')
+  if (!['mimo', 'local', 'hybrid', 'openai'].includes(provider)) {
+    problems.push('upstream.provider 必须是 mimo / local / hybrid / openai')
+  }
+  if (provider === 'openai') {
+    const oa = cfg.upstream?.openai || {}
+    if (!/^https?:\/\//.test(String(oa.baseUrl || ''))) {
+      problems.push('OpenAI 兼容引擎：upstream.openai.baseUrl 必须是 http(s) 地址')
+    }
+    if (!String(oa.model || '').trim()) {
+      problems.push('OpenAI 兼容引擎：upstream.openai.model 不能为空')
+    }
+    if (!String(oa.narratorVoice || '').trim()) {
+      problems.push('OpenAI 兼容引擎：upstream.openai.narratorVoice 不能为空')
+    }
+    if (!['wav', 'pcm'].includes(oa.responseFormat || 'wav')) {
+      problems.push('OpenAI 兼容引擎：responseFormat 必须是 wav 或 pcm')
+    }
+    const spd = Number(oa.speed ?? 1)
+    if (!Number.isFinite(spd) || spd < 0.25 || spd > 4.0) {
+      problems.push('OpenAI 兼容引擎：speed 必须是 0.25–4.0')
+    }
+  }
   if (provider === 'local' || provider === 'hybrid') {
     const local = cfg.upstream?.local || {}
     if (!local.pythonPath) problems.push('本地引擎：upstream.local.pythonPath 不能为空')
@@ -337,6 +390,12 @@ export function redact(cfg) {
     upstream: {
       ...cfg.upstream,
       keys: cfg.upstream.keys.map((k) => maskKey(k)),
+      openai: cfg.upstream.openai
+        ? {
+          ...cfg.upstream.openai,
+          apiKey: cfg.upstream.openai.apiKey ? maskKey(cfg.upstream.openai.apiKey) : '',
+        }
+        : undefined,
     },
     auth: { ...cfg.auth, pass: cfg.auth.pass ? '••••••' : '' },
   }

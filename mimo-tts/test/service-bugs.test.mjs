@@ -124,7 +124,7 @@ test('宿主路由 /mimo-tts/api/validate 使用深合并校验局部补丁', as
     server: { host: '127.0.0.1', port: freePort },
     auth: { enabled: false },
   }))
-  let registeredHandler = null
+  const routes = {}
   const cleanups = []
   try {
     const ctx = {
@@ -139,8 +139,8 @@ test('宿主路由 /mimo-tts/api/validate 使用深合并校验局部补丁', as
             if (typeof c === 'function') cleanups.push(c)
           },
           webServer: {
-            register({ handler }) {
-              registeredHandler = handler
+            register({ path, handler }) {
+              routes[path] = handler
               return () => {}
             },
           },
@@ -148,7 +148,15 @@ test('宿主路由 /mimo-tts/api/validate 使用深合并校验局部补丁', as
       },
     }
     apply(ctx)
+    const registeredHandler = routes['/mimo-tts']
+    const aliasHandler = routes['/audiobook-tts']
     assert.equal(typeof registeredHandler, 'function')
+    assert.equal(typeof aliasHandler, 'function')
+
+    const stateRes = makeFakeRes()
+    await aliasHandler(makeFakeReq({ method: 'GET', url: '/audiobook-tts/api/state' }), stateRes)
+    assert.equal(stateRes.status, 200)
+    assert.ok(JSON.parse(stateRes.bodyText).service)
 
     const req = makeFakeReq({
       method: 'POST',

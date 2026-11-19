@@ -45,7 +45,7 @@ test('内网来源裸地址（不带令牌）也能拿到导入 JSON', async () 
   assert.equal(res.status, 200)
   const arr = JSON.parse(res.body)
   assert.equal(Array.isArray(arr), true)
-  assert.equal(arr[0].name, 'MiMo TTS 听书')
+  assert.equal(arr[0].name, '听书值守 TTS')
   assert.ok(arr[0].url.includes('token=tok-abc'), '导入的朗读地址要带令牌')
   assert.ok(arr[0].url.includes('{{java.encodeURI(speakText)}}'))
 })
@@ -63,7 +63,7 @@ test('公网来源不带令牌：401 且是纯文本，不能回 JSON', async ()
 test('公网来源带正确令牌：正常返回', async () => {
   const res = await run(fakeService(), fakeReq('8.8.8.8', 'example.com:8292'), '/legado.json?token=tok-abc')
   assert.equal(res.status, 200)
-  assert.equal(JSON.parse(res.body)[0].name, 'MiMo TTS 听书')
+  assert.equal(JSON.parse(res.body)[0].name, '听书值守 TTS')
 })
 
 test('关掉鉴权时谁都能拿', async () => {
