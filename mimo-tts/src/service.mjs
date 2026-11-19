@@ -720,7 +720,7 @@ export class TtsService {
       // 手机上最容易的做法是把主机地址直接贴进来（不带令牌）。局域网内网来源允许
       // 这种「引导式」访问：服务本来就只在内网开，令牌在返回的 URL 里照旧带着。
       //
-      // ⚠️ 但走 Cloudflare Tunnel 时，TCP 对端永远是隧道宿主（192.168.31.15，内网地址），
+      // ⚠️ 但走 Cloudflare Tunnel 时，TCP 对端永远是隧道宿主（192.168.1.15，内网地址），
       // 只看对端会把公网请求也放进来。所以带了转发头（CF-Connecting-IP / X-Forwarded-For）
       // 就一律按公网处理，必须带令牌。
       if (!ok && (hasProxyHeaders(req) || !isPrivateAddress(req.socket?.remoteAddress))) {

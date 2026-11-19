@@ -35,7 +35,7 @@
   },
   "scripts": {
     "start": "node bin/mimo-tts.mjs",
-    "test": "node --test test/"
+    "test": "node --test test/*.test.mjs"
   },
   "dsh": {
     "bundle": {

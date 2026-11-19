@@ -159,7 +159,7 @@ window.__ModuleLoader__.load({
       return `${Math.round(diff / 3600000)} 小时前`
     }
 
-    /** client 形如 `a1b2c3d4@192.168.31.61`：设备只能从这两个真实片段取，不能编场景名。 */
+    /** client 形如 `a1b2c3d4@192.168.1.61`：设备只能从这两个真实片段取，不能编场景名。 */
     const ipOf = (client) => {
       const s = String(client || '')
       const at = s.indexOf('@')

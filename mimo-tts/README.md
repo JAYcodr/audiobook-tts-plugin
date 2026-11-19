@@ -133,7 +133,7 @@ node --check client.js          # 语法自检
 
 ```bash
 node docs/redesign/harness/server.cjs --port 8711
-NODE_PATH=/Users/hamelin/.local/lib/node_modules node docs/redesign/harness/shoot.cjs
+NODE_PATH=~/.local/lib/node_modules node docs/redesign/harness/shoot.cjs
 # 截图与断言输出在 docs/redesign/harness/shots/
 ```
 
@@ -152,7 +152,7 @@ NODE_PATH=/Users/hamelin/.local/lib/node_modules node docs/redesign/harness/shoo
 # ~/.cloudflared/config.yml 里的 ingress 加一条
 ingress:
   - hostname: tts.example.com
-    service: http://192.168.31.54:8292     # Mac 的局域网地址，别写 127.0.0.1
+    service: http://192.168.1.54:8292     # Mac 的局域网地址，别写 127.0.0.1
   - service: http_status:404
 ```
 

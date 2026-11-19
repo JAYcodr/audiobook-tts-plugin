@@ -356,7 +356,7 @@ sidecar 没起来时这个地址是连不上的——这很正常，它是**懒�
 # NAS 上的 ~/.cloudflared/config.yml
 ingress:
   - hostname: tts.example.com
-    service: http://192.168.31.54:8291   # 写 Mac 的局域网 IP，别写 127.0.0.1
+    service: http://192.168.1.54:8291   # 写 Mac 的局域网 IP，别写 127.0.0.1
   - service: http_status:404
 ```
 
