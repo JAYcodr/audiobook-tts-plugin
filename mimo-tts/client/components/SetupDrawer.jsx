@@ -72,7 +72,7 @@ function StatusPill({ status, text }) {
 }
 
 export function SetupDrawer({
-  open, onClose, onApplyPatch, onRefreshState, showToast,
+  open, onClose, onApplyPatch, onRefreshState, onDoctorReport, showToast,
 }) {
   const [detect, setDetect] = useState(null)
   const [detecting, setDetecting] = useState(false)
@@ -176,6 +176,7 @@ export function SetupDrawer({
     try {
       const res = await runDoctorApi(checkNetwork)
       setDoctor(res)
+      onDoctorReport?.(res)
       showToast(res.headline || '体检完成')
     } catch (err) {
       showToast(`体检失败：${String(err?.message || err)}`)

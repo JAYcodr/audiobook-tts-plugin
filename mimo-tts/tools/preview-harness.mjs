@@ -47,8 +47,15 @@ function buildFixtureState() {
     }
   })
   const recent = [
-    { at: now - 54_000, chars: 76, segments: 2, audioSeconds: 11.4, latencyMs: 1420, cacheHit: false, client: 'a1b2@192.168.1.24', role: 'narrator', source: 'hybrid-cloud', text: '夜雾渐渐浓了，山道尽头的石灯笼晃了两晃。' },
-    { at: now - 42_000, chars: 38, segments: 1, audioSeconds: 5.2, latencyMs: 910, cacheHit: false, client: 'a1b2@192.168.1.24', role: 'dialogue', source: 'hybrid-cloud', text: '“你来了，我等你很久了。”' },
+    { at: now - 168_000, chars: 84, segments: 2, audioSeconds: 12.6, latencyMs: 1380, cacheHit: false, client: 'a1b2@192.168.1.24', role: 'narrator', source: 'hybrid-cloud', text: '暮色沉下来，长街两侧的灯笼逐一亮起，照得青石板泛出湿润的光。' },
+    { at: now - 151_000, chars: 42, segments: 1, audioSeconds: 5.8, latencyMs: 890, cacheHit: false, client: 'a1b2@192.168.1.24', role: 'dialogue', source: 'hybrid-cloud', text: '“前头就是渡口了，船家应该还没收缆。”' },
+    { at: now - 134_000, chars: 112, segments: 3, audioSeconds: 16.4, latencyMs: 1520, cacheHit: false, client: 'a1b2@192.168.1.24', role: 'mixed', source: 'hybrid-cloud', text: '他勒住缰绳回头望了一眼，“若今夜起了大雾，便在客栈歇一宿。”' },
+    { at: now - 118_000, chars: 64, segments: 2, audioSeconds: 9.2, latencyMs: 42, cacheHit: true, client: 'a1b2@192.168.1.24', role: 'narrator', source: 'hybrid-local', text: '江面浮起一层薄纱般的雾气，远处隐约传来几声雁鸣。' },
+    { at: now - 102_000, chars: 96, segments: 3, audioSeconds: 14.1, latencyMs: 2680, cacheHit: false, client: 'a1b2@192.168.1.24', role: 'mixed', source: 'hybrid-local', text: '老船夫敲了敲烟袋锅，“客官这时候过江，可是赶着去府城？”' },
+    { at: now - 86_000, chars: 52, segments: 1, audioSeconds: 7.5, latencyMs: 1460, cacheHit: false, client: 'a1b2@192.168.1.24', role: 'dialogue', source: 'hybrid-local', text: '“正是，麻烦老人家多费心，船资照双倍算。”' },
+    { at: now - 71_000, chars: 78, segments: 2, audioSeconds: 11.2, latencyMs: 38, cacheHit: true, client: 'a1b2@192.168.1.24', role: 'narrator', source: 'hybrid-local', text: '木桨入水，荡开细碎银波，乌篷船缓缓离了岸。' },
+    { at: now - 54_000, chars: 76, segments: 2, audioSeconds: 11.4, latencyMs: 1720, cacheHit: false, client: 'a1b2@192.168.1.24', role: 'narrator', source: 'hybrid-local', text: '夜雾渐渐浓了，山道尽头的石灯笼晃了两晃。' },
+    { at: now - 42_000, chars: 38, segments: 1, audioSeconds: 5.2, latencyMs: 1190, cacheHit: false, client: 'a1b2@192.168.1.24', role: 'dialogue', source: 'hybrid-local', text: '“你来了，我等你很久了。”' },
     { at: now - 28_000, chars: 94, segments: 3, audioSeconds: 14.8, latencyMs: 45, cacheHit: true, client: 'a1b2@192.168.1.24', role: 'mixed', source: 'hybrid-local', text: '他把斗笠压低，“城门亥时闭，走小路。”' },
     { at: now - 12_000, chars: 62, segments: 2, audioSeconds: 9.1, latencyMs: 1850, cacheHit: false, client: 'a1b2@192.168.1.24', role: 'narrator', source: 'hybrid-local', text: '风吹过竹林，沙沙作响，远处传来打更声。' },
   ]
@@ -151,6 +158,21 @@ const HARNESS_HTML = `<!doctype html>
     'svg', 'circle', 'ellipse', 'g', 'line', 'path', 'polygon', 'polyline', 'rect', 'text',
   ])
   const UNITLESS = new Set(['opacity', 'fontWeight', 'lineHeight', 'zIndex', 'flex', 'flexGrow', 'flexShrink'])
+  const SVG_ATTR_MAP = {
+    strokeWidth: 'stroke-width',
+    strokeLinecap: 'stroke-linecap',
+    strokeLinejoin: 'stroke-linejoin',
+    strokeDasharray: 'stroke-dasharray',
+    strokeDashoffset: 'stroke-dashoffset',
+    strokeOpacity: 'stroke-opacity',
+    fillOpacity: 'fill-opacity',
+    textAnchor: 'text-anchor',
+    dominantBaseline: 'dominant-baseline',
+    fontSize: 'font-size',
+    fontFamily: 'font-family',
+    fontWeight: 'font-weight',
+  }
+  const SCROLL_SELECTORS = ['.modules', '.dlv-main', '.dlv-right', '.takes-list', '.drawer-body', '.setup-log', '.ledger-wrap .scroll']
   const hookStore = new Map()
   let scheduled = false
   let rootComp = null
@@ -240,7 +262,8 @@ const HARNESS_HTML = `<!doctype html>
         el.setAttribute('for', String(v))
         continue
       }
-      el.setAttribute(k, String(v))
+      const attrName = isSvg && SVG_ATTR_MAP[k] ? SVG_ATTR_MAP[k] : k
+      el.setAttribute(attrName, String(v))
     }
     const childDom = makeDom(props.children, path + '/' + vnode.type, usedPaths)
     if (childDom) el.appendChild(childDom)
@@ -269,6 +292,10 @@ const HARNESS_HTML = `<!doctype html>
       const activeId = active?.id || ''
       const selStart = active?.selectionStart
       const selEnd = active?.selectionEnd
+      const savedScrolls = SCROLL_SELECTORS.map((sel) => {
+        const node = rootEl.querySelector(sel)
+        return node ? [sel, node.scrollTop, node.scrollLeft] : null
+      }).filter(Boolean)
       const usedPaths = new Set()
       const dom = makeDom(React.createElement(rootComp, {}), 'root', usedPaths)
       for (const [key, rec] of [...hookStore.entries()]) {
@@ -278,6 +305,13 @@ const HARNESS_HTML = `<!doctype html>
         }
       }
       rootEl.replaceChildren(dom)
+      for (const [sel, top, left] of savedScrolls) {
+        const node = rootEl.querySelector(sel)
+        if (node) {
+          node.scrollTop = top
+          node.scrollLeft = left
+        }
+      }
       while (pendingEffects.length) {
         const eff = pendingEffects.shift()
         eff()

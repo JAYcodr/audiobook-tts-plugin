@@ -103,8 +103,12 @@
 .mtt .ref-picked-note{font-size:11px;color:var(--ink-2);padding:3px 6px;background:var(--panel);border:1px solid var(--line)}
 
 .mtt .vp-bar{display:flex;flex-direction:column;gap:6px;padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid var(--line)}
-.mtt .vp-chips{display:flex;flex-wrap:wrap;gap:4px}
+.mtt .vp-chips{display:flex;flex-wrap:wrap;gap:5px}
+.mtt .vp-chip-wrap{display:inline-flex;align-items:stretch}
+.mtt .vp-del{border-left:0;color:var(--grease);padding:1px 5px}
+.mtt .vp-del:hover{background:var(--grease-soft)}
 .mtt .vp-save{display:flex;gap:6px;align-items:center}
+.mtt .synth-cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
 .mtt .role-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .mtt .role-card{border:1px solid var(--line);background:var(--panel);padding:8px 10px;border-radius:var(--r)}
 .mtt .role-card-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
@@ -156,7 +160,7 @@
 .mtt .qr-zoom-url{width:100%;word-break:break-all;font:11px/1.4 var(--mono);background:var(--well);border:1px solid var(--line);padding:6px 8px}
 
 @container (max-width:900px){
-  .mtt .role-grid, .mtt .detect-grid, .mtt .ref-up-grid, .mtt .lex-row-pair{grid-template-columns:minmax(0,1fr)}
+  .mtt .role-grid, .mtt .detect-grid, .mtt .ref-up-grid, .mtt .lex-row-pair, .mtt .synth-cols{grid-template-columns:minmax(0,1fr)}
   .mtt .doc-row{grid-template-columns:18px minmax(0,1fr)}
   .mtt .doc-msg{grid-column:2}
 }

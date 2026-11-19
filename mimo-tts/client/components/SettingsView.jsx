@@ -274,6 +274,34 @@ export function SettingsView({
     showToast(`已添加到草稿音色方案：${cleanName}`)
   }
 
+  const deleteCustomProfile = (profileId) => {
+    const existing = Array.isArray(d['voiceProfiles.items']) ? d['voiceProfiles.items'] : []
+    const nextItems = existing.filter((p) => p.id !== profileId)
+    const patch = { 'voiceProfiles.items': nextItems }
+    if (d['voiceProfiles.active'] === profileId) patch['voiceProfiles.active'] = 'builtin:story-warm'
+    onSetBatch(patch)
+    showToast('已从草稿移除自定义音色方案（保存后生效）')
+  }
+
+  const assignRefToRole = (roleKey, item) => {
+    const roleCn = roleKey === 'dialogue' ? '对话' : '旁白'
+    if (provider === 'mimo') {
+      onSetBatch({
+        [`voices.${roleKey}.mode`]: 'clone',
+        [`voices.${roleKey}.refId`]: item.id,
+        [`voices.${roleKey}.voice`]: '',
+      })
+      showToast(`已将「${item.name}」绑定为 MiMo ${roleCn}克隆音色（草稿）`)
+      return
+    }
+    onSetBatch({
+      [`upstream.local.refs.${roleKey}.refId`]: item.id,
+      [`upstream.local.refs.${roleKey}.wav`]: '',
+      [`upstream.local.refs.${roleKey}.text`]: '',
+    })
+    showToast(`已将「${item.name}」设为本地 ${roleCn}参考音（草稿）`)
+  }
+
   const renderLocalRefPicker = (roleKey, label) => {
     const refPath = `upstream.local.refs.${roleKey}.refId`
     const wavPath = `upstream.local.refs.${roleKey}.wav`
@@ -397,7 +425,7 @@ export function SettingsView({
               </div>
             ) : null,
           ], {
-            wide: provider === 'hybrid',
+            wide: true,
           })}
 
           {moduleShell('mod-local', '02', '本地引擎 (Qwen3-TTS MLX)', localActive ? 'ACTIVE' : 'COLLAPSED', 'local', showLocalBody ? [
@@ -475,15 +503,27 @@ export function SettingsView({
               <span className="silk">一键音色方案</span>
               <div className="vp-chips">
                 {allProfiles.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className="chip"
-                    aria-pressed={String(d['voiceProfiles.active'] === p.id)}
-                    onClick={() => applyVoiceProfile(p.id)}
-                  >
-                    {p.name}
-                  </button>
+                  <span key={p.id} className="vp-chip-wrap">
+                    <button
+                      type="button"
+                      className="chip"
+                      aria-pressed={String(d['voiceProfiles.active'] === p.id)}
+                      onClick={() => applyVoiceProfile(p.id)}
+                    >
+                      {p.name}
+                    </button>
+                    {!p.builtin ? (
+                      <button
+                        type="button"
+                        className="chip vp-del"
+                        title={`删除自定义方案：${p.name}`}
+                        aria-label={`删除 ${p.name}`}
+                        onClick={() => deleteCustomProfile(p.id)}
+                      >
+                        ×
+                      </button>
+                    ) : null}
+                  </span>
                 ))}
               </div>
               <div className="vp-save">
@@ -530,7 +570,13 @@ export function SettingsView({
           ], { wide: true })}
 
           {moduleShell('mod-refs', '05', '统一参考音库', 'UNIFIED REF LIBRARY', 'refs', [
-            <RefVoiceLibrary key="rl" refs={refsList} onRefsChange={onRefsChange} showToast={showToast} />,
+            <RefVoiceLibrary
+              key="rl"
+              refs={refsList}
+              onRefsChange={onRefsChange}
+              onAssignRef={assignRefToRole}
+              showToast={showToast}
+            />,
           ], { wide: true })}
 
           <div className="mod-group-hd">
@@ -551,29 +597,31 @@ export function SettingsView({
           ], { wide: true })}
 
           {moduleShell('mod-synth', '07', '合成与缓存', 'SYNTH · CACHE', 'synth', [
-            <div key="k1" className="knob-row">
-              {knob('synth.concurrency', '并发', 1, 8, 1, '路', '合成并发（路）')}
-              {knob('synth.maxSegmentChars', '每段字数', 10, 300, 10, '字', '每段最大字数')}
-              {knob('limits.rpm', '限速', 10, 300, 10, '/min', '每分钟请求上限')}
+            <div key="scols" className="synth-cols">
+              <div>
+                <div className="knob-row">
+                  {knob('synth.concurrency', '并发', 1, 8, 1, '路', '合成并发（路）')}
+                  {knob('synth.maxSegmentChars', '每段字数', 10, 300, 10, '字', '每段最大字数')}
+                  {knob('limits.rpm', '限速', 10, 300, 10, '/min', '每分钟请求上限')}
+                </div>
+                <div className="ctrl-row">
+                  <div className="cl"><b>流式返回</b><i>STREAM</i></div>
+                  {toggle('synth.stream', '流式返回')}
+                </div>
+              </div>
+              <div>
+                <div className="knob-row">
+                  {knob('cache.maxEntries', '缓存条目', 50, 5000, 50, '条', '缓存条目上限')}
+                  {knob('cache.ttlSeconds', '缓存 TTL', 600, 86400, 600, 's', '缓存 TTL（秒）')}
+                  {knob('synth.maxTextChars', '最长文本', 1000, 20000, 1000, '字', '单次最长文本')}
+                </div>
+                <div className="ctrl-row">
+                  <div className="cl"><b>缓存</b><i>{`上限 ${fmtBytes(live?.cache?.maxBytes || 0)}`}</i></div>
+                  {toggle('cache.enabled', '启用缓存')}
+                </div>
+              </div>
             </div>,
-            <div key="st" className="ctrl-row">
-              <div className="cl"><b>流式返回</b><i>STREAM</i></div>
-              {toggle('synth.stream', '流式返回')}
-            </div>,
-            <div key="ce" className="ctrl-row">
-              <div className="cl"><b>缓存</b><i>CACHE</i></div>
-              {toggle('cache.enabled', '启用缓存')}
-            </div>,
-            <div key="k2" className="knob-row">
-              {knob('cache.maxEntries', '缓存条目', 50, 5000, 50, '条', '缓存条目上限')}
-              {knob('cache.ttlSeconds', '缓存 TTL', 600, 86400, 600, 's', '缓存 TTL（秒）')}
-              {knob('synth.maxTextChars', '最长文本', 1000, 20000, 1000, '字', '单次最长文本')}
-            </div>,
-            <div key="cb" className="rowx" style={{ marginTop: 4 }}>
-              <span>缓存上限</span>
-              <b>{fmtBytes(live?.cache?.maxBytes || 0)}</b>
-            </div>,
-          ])}
+          ], { wide: true })}
 
           <div className="mod-group-hd">
             <span className="silk">GROUP 04 · <b>网络端口、Legado 与安全鉴权</b></span>

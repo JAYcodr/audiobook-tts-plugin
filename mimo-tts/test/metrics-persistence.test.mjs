@@ -21,17 +21,25 @@ test('expandHomePath 正确展开 ~ 家目录路径，不影响常规路径', ()
 })
 
 test('validateModelDir 支持 ~ 相对家目录路径展开', () => {
-  const home = homedir()
-  const subName = `.tmp-mimo-home-check-${process.pid}-${Date.now()}`
-  const dir = join(home, subName)
+  const fakeHome = fresh('mimo-home-')
+  const prevHome = process.env.HOME
+  const prevProfile = process.env.USERPROFILE
+  const subName = 'qwen-model-tilde'
+  const dir = join(fakeHome, subName)
   try {
+    process.env.HOME = fakeHome
+    process.env.USERPROFILE = fakeHome
     mkdirSync(join(dir, 'speech_tokenizer'), { recursive: true })
     writeFileSync(join(dir, 'config.json'), '{}')
     writeFileSync(join(dir, 'speech_tokenizer', 'model.safetensors'), '123456')
     writeFileSync(join(dir, 'model.safetensors'), '123456')
     assert.doesNotThrow(() => validateModelDir(`~/${subName}`, { minVocoderBytes: 4, minModelBytes: 4 }))
   } finally {
-    rmSync(dir, { recursive: true, force: true })
+    if (prevHome === undefined) delete process.env.HOME
+    else process.env.HOME = prevHome
+    if (prevProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = prevProfile
+    rmSync(fakeHome, { recursive: true, force: true })
   }
 })
 

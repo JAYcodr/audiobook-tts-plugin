@@ -3,7 +3,7 @@ import { deleteRefApi, refAudioUrl, updateRefApi, uploadRefApi } from '../api.js
 
 const MAX_BYTES = 10 * 1024 * 1024
 
-export function RefVoiceLibrary({ refs, onRefsChange, showToast }) {
+export function RefVoiceLibrary({ refs, onRefsChange, onAssignRef, showToast }) {
   const [name, setName] = useState('')
   const [text, setText] = useState('')
   const [file, setFile] = useState(null)
@@ -123,6 +123,26 @@ export function RefVoiceLibrary({ refs, onRefsChange, showToast }) {
                   {!it.exists ? ' · 文件缺失' : ''}
                 </span>
                 <div className="ref-acts">
+                  {it.exists && onAssignRef ? (
+                    <>
+                      <button
+                        className="btn btn--sm btn--tape"
+                        type="button"
+                        title="绑定为旁白参考音（草稿）"
+                        onClick={() => onAssignRef('narrator', it)}
+                      >
+                        设为旁白
+                      </button>
+                      <button
+                        className="btn btn--sm"
+                        type="button"
+                        title="绑定为对话参考音（草稿）"
+                        onClick={() => onAssignRef('dialogue', it)}
+                      >
+                        设为对话
+                      </button>
+                    </>
+                  ) : null}
                   {it.exists ? (
                     <button
                       className="btn btn--sm"

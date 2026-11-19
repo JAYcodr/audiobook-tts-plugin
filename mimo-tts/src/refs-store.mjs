@@ -102,6 +102,7 @@ export class RefsStore {
     this.log = log || (() => {})
     this.custom = []
     this.loaded = false
+    this.builtinMetaCache = new Map()
   }
 
   load() {
@@ -153,7 +154,13 @@ export class RefsStore {
         try {
           const st = statSync(wav)
           sizeBytes = st.size
-          meta = inspectAudio(readFileSync(wav), '.wav')
+          const cached = this.builtinMetaCache.get(wav)
+          if (cached && cached.size === st.size && cached.mtimeMs === st.mtimeMs) {
+            meta = cached.meta
+          } else {
+            meta = inspectAudio(readFileSync(wav), '.wav')
+            this.builtinMetaCache.set(wav, { size: st.size, mtimeMs: st.mtimeMs, meta })
+          }
         } catch { /* ignore */ }
       }
       return {

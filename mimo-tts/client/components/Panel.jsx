@@ -35,6 +35,7 @@ export function Panel() {
   const [lastSync, setLastSync] = useState(0)
   const [setupOpen, setSetupOpen] = useState(false)
   const [bannerDismissed, setBannerDismissed] = useState(false)
+  const [doctorReport, setDoctorReport] = useState(null)
   const toastTimer = useRef(null)
   const syncedRef = useRef('')
   const rootObs = useRef(null)
@@ -486,7 +487,7 @@ export function Panel() {
           <SetupBanner
             setupSummary={state?.setupSummary}
             config={config}
-            doctorReport={null}
+            doctorReport={doctorReport}
             dismissed={bannerDismissed}
             onDismiss={() => setBannerDismissed(true)}
             onOpenDrawer={() => setSetupOpen(true)}
@@ -510,6 +511,10 @@ export function Panel() {
         onClose={() => setSetupOpen(false)}
         onApplyPatch={applySetupPatch}
         onRefreshState={refresh}
+        onDoctorReport={(rep) => {
+          setDoctorReport(rep)
+          if (rep && rep.ok === false) setBannerDismissed(false)
+        }}
         showToast={showToast}
       />
       <div className={`toast${toast ? ' show' : ''}`} role="status" aria-live="polite">
