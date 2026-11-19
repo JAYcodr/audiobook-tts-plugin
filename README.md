@@ -66,10 +66,10 @@
 > 主路径是本地引擎（见 [INSTALL.md](INSTALL.md)）。这一节只求解「先听个响」或者没有 Apple Silicon 的机器。
 
 1. 去 <https://platform.xiaomimimo.com/#/console/api-keys> 注册，建一个 API Key（`sk-` 开头，只显示一次，存好）。
-2. 把**整个包**放到一个以后不会移动、不会删的地方，比如 `~/dsh-plugins/`。
-   装进 DSH 的是包里的 `mimo-tts/` 子目录；整包别拆（`setup/` 要靠它找 `refs/`）。
+2. 把仓库 clone 到固定目录（以后不挪、不删）：`git clone https://github.com/JAYcodr/mimo-tts.git ~/dsh-plugins/mimo-tts`。
+   装进 DSH 的是仓库里的 `mimo-tts/` 子目录；整包别拆（`setup/` 要靠它找 `refs/`）。
 3. 在 DSH 里说一句：「用 plugin_manager 的 install_bundle 安装
-   `~/dsh-plugins/mimo-tts-pack-0.2.0/mimo-tts`」。
+   `~/dsh-plugins/mimo-tts/mimo-tts`」。
 4. **完全退出** DSH 再打开（macOS 要连托盘一起退）。
 5. 左栏点「听书值守」→「渲染设置」→ 引擎「渲染来源」选**云端** →
    「传输」里填 API Key → 保存。

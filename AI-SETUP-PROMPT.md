@@ -8,7 +8,7 @@
 
 我在装一个本地插件「听书值守」（`@local/mimo-tts` 0.2.0），它把 MiMo TTS 包成一个给
 Legado（阅读 App）用的在线朗读服务。压缩包已经解压到我电脑上了，目录名是
-`mimo-tts-pack-0.2.0`（里面同时有 `INSTALL.md` / `TROUBLESHOOTING.md` / `mimo-tts/`）。
+`mimo-tts`（里面同时有 `INSTALL.md` / `TROUBLESHOOTING.md` / `mimo-tts/`）。
 你找不到就先在我常用的下载目录和 `~/dsh-plugins` 下搜一下。
 
 请按顺序做，**每完成一步告诉我结果**（成功/失败 + 关键输出），不要跳步，不要顺手动别的插件。
@@ -27,8 +27,8 @@ Legado（阅读 App）用的在线朗读服务。压缩包已经解压到我电�
 
 ```bash
 mkdir -p ~/dsh-plugins
-# 把整个 mimo-tts-pack-0.2.0 挪进来（整包别拆），然后确认：
-ls ~/dsh-plugins/mimo-tts-pack-0.2.0/mimo-tts/package.json
+# 把整个 mimo-tts 挪进来（整包别拆），然后确认：
+ls ~/dsh-plugins/mimo-tts/mimo-tts/package.json
 ```
 
 **验证**：`package.json` 里有 `"name": "@local/mimo-tts"`。
@@ -45,14 +45,14 @@ dsh --version
 
 优先用宿主工具：
 
-> `plugin_manager` → `action: "install_bundle"`，`target` 填 `~/dsh-plugins/mimo-tts-pack-0.2.0/mimo-tts` 的**绝对路径**。
+> `plugin_manager` → `action: "install_bundle"`，`target` 填 `~/dsh-plugins/mimo-tts/mimo-tts` 的**绝对路径**。
 
 它会做两件事：把 `@local/mimo-tts` 写进 profile 依赖（`link:` 形式），并加进
 `dsh.profile.bundles`。如果它报错、或者装完 `bundles` 里没有这一项，用兜底方案：
 
 ```bash
 ls ~/.dsh/profiles            # 确认 profile 名，通常是 desktop 或 web
-dsh plugin --profile desktop add link:$HOME/dsh-plugins/mimo-tts-pack-0.2.0/mimo-tts
+dsh plugin --profile desktop add link:$HOME/dsh-plugins/mimo-tts/mimo-tts
 ```
 
 然后手工编辑 `~/.dsh/profiles/desktop/package.json`，在 `dsh.profile.bundles` 数组里
@@ -128,7 +128,7 @@ baseUrl 不一样，`tp-` 要改成 `https://token-plan-cn.xiaomimimo.com/v1`）
 ## 第 6 步（只有在我要本地引擎时）：装模型
 
 ```bash
-cd ~/dsh-plugins/mimo-tts-pack-0.2.0    # 或者包解压在哪就去哪
+cd ~/dsh-plugins/mimo-tts    # 或者包解压在哪就去哪
 HF_ENDPOINT=https://hf-mirror.com ./setup/install-local-engine.sh
 ```
 

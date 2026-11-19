@@ -3,7 +3,7 @@
 先跑一遍体检，能省一半时间：
 
 ```bash
-cd /path/to/mimo-tts-pack-0.2.0
+cd /path/to/mimo-tts
 ./setup/check-env.sh
 ```
 
