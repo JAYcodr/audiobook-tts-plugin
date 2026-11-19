@@ -21,6 +21,7 @@ import { LocalProvider } from './providers/local.mjs'
 import { MimoProvider } from './providers/mimo.mjs'
 import { OpenAiTtsProvider } from './providers/openai.mjs'
 import { RefsStore } from './refs-store.mjs'
+import { SetupManager } from './setup-manager.mjs'
 import { splitText, toRequests } from './split.mjs'
 import { concatWavs } from './wav.mjs'
 
@@ -82,6 +83,12 @@ export class TtsService {
     // 向后兼容属性（测试与外部脚本可能直接访问）
     this.mimo = this.mimoProvider.client
     this.local = this.localProvider.engine
+    this.setup = new SetupManager({
+      dataDir: store.dataDir || '',
+      refsStore: this.refs,
+      getConfig: () => this.store.config,
+      log: this.log,
+    })
 
     this.controlHandler = createControlHandler({ service: this, requireAuth: true })
     this.server = null
@@ -150,7 +157,10 @@ export class TtsService {
 
   async stop() {
     this.metrics.flush()
-    await this.registry.shutdown()
+    await Promise.all([
+      this.setup?.shutdown().catch(() => {}),
+      this.registry.shutdown(),
+    ])
     return this.stopServer()
   }
 

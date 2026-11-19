@@ -8,6 +8,7 @@ import { HttpInputError, readJson, sendJson } from './http.mjs'
 import { buildImportInfo } from './legado.mjs'
 import { BUILTIN_RULE_PRESETS, previewTextPipeline, validateTextRules } from './lexicon.mjs'
 import { RefError } from './refs-store.mjs'
+import { SetupError, runDoctor } from './setup-manager.mjs'
 import { parseWav } from './wav.mjs'
 
 export function buildStatePayload(service, req) {
@@ -27,6 +28,7 @@ export function buildStatePayload(service, req) {
     builtinVoiceProfiles: BUILTIN_VOICE_PROFILES,
     builtinRulePresets: BUILTIN_RULE_PRESETS,
     refs: service.refs.list(),
+    setupSummary: service.setup.quickSummary(),
     providers: service.registry.list().map((p) => p.status()),
     dataDir: service.store.dataDir,
   }
@@ -254,11 +256,87 @@ export function createControlHandler({ service, requireAuth = false }) {
       return true
     }
 
-    const handledRef = await handleRefRoutes(service, req, res, path)
-    if (handledRef) return true
+    if (path.startsWith('/api/refs')) return handleRefRoutes(service, req, res, path)
+    if (path === '/api/env/detect' || path === '/api/doctor' || path.startsWith('/api/setup/')) {
+      return handleSetupRoutes(service, req, res, path, url)
+    }
 
     return false
   }
+}
+
+async function handleSetupRoutes(service, req, res, path, url) {
+  if (path === '/api/env/detect') {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' })
+      return true
+    }
+    sendJson(res, 200, service.setup.detect())
+    return true
+  }
+
+  if (path === '/api/doctor') {
+    if (req.method !== 'POST' && req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' })
+      return true
+    }
+    let checkNetwork = url.searchParams.get('network') === '1'
+    if (req.method === 'POST') {
+      const body = await readJson(req, 10_000).catch(() => ({}))
+      if (body.checkNetwork !== undefined) checkNetwork = Boolean(body.checkNetwork)
+    }
+    const report = await runDoctor({
+      service,
+      checkNetwork,
+      minVocoderBytes: service.setup.minVocoderBytes,
+      minModelBytes: service.setup.minModelBytes,
+    })
+    sendJson(res, 200, report)
+    return true
+  }
+
+  if (path === '/api/setup/status') {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' })
+      return true
+    }
+    const since = Number(url.searchParams.get('since') || 0)
+    sendJson(res, 200, service.setup.status({ since }))
+    return true
+  }
+
+  if (path === '/api/setup/run') {
+    if (req.method !== 'POST') {
+      sendJson(res, 405, { error: 'method not allowed' })
+      return true
+    }
+    try {
+      const body = await readJson(req, 20_000)
+      const st = service.setup.start({
+        task: body.task,
+        hfEndpoint: body.hfEndpoint || '',
+      })
+      sendJson(res, 202, st)
+    } catch (err) {
+      const status = err instanceof SetupError
+        ? err.status
+        : (err instanceof HttpInputError ? err.status : 400)
+      sendJson(res, status, { error: String(err?.message || err), code: err?.code || 'setup_error' })
+    }
+    return true
+  }
+
+  if (path === '/api/setup/cancel') {
+    if (req.method !== 'POST') {
+      sendJson(res, 405, { error: 'method not allowed' })
+      return true
+    }
+    const st = await service.setup.cancel()
+    sendJson(res, 200, st)
+    return true
+  }
+
+  return false
 }
 
 function sendRefError(res, err) {
