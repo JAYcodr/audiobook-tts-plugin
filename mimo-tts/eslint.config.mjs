@@ -1,0 +1,78 @@
+export default [
+  {
+    ignores: [
+      'client.js',
+      'node_modules/**',
+      'data/**',
+      'data-test/**',
+      'bench/**',
+    ],
+  },
+  {
+    files: ['index.js', 'src/**/*.mjs', 'bin/*.mjs', 'tools/*.mjs', 'test/**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: 'module',
+      globals: {
+        AbortSignal: 'readonly',
+        Buffer: 'readonly',
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+        TextDecoder: 'readonly',
+        Response: 'readonly',
+        clearInterval: 'readonly',
+        clearTimeout: 'readonly',
+        console: 'readonly',
+        fetch: 'readonly',
+        process: 'readonly',
+        queueMicrotask: 'readonly',
+        setInterval: 'readonly',
+        setTimeout: 'readonly',
+        structuredClone: 'readonly',
+      },
+    },
+    rules: {
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      'no-undef': 'error',
+      'no-dupe-keys': 'error',
+      'no-unreachable': 'error',
+      'no-var': 'error',
+      'prefer-const': 'error',
+      eqeqeq: ['error', 'smart'],
+    },
+  },
+  {
+    files: ['client/**/*.{js,jsx}'],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: 'module',
+      parserOptions: {
+        ecmaFeatures: { jsx: true },
+      },
+      globals: {
+        Blob: 'readonly',
+        ResizeObserver: 'readonly',
+        URL: 'readonly',
+        Audio: 'readonly',
+        clearInterval: 'readonly',
+        clearTimeout: 'readonly',
+        document: 'readonly',
+        fetch: 'readonly',
+        matchMedia: 'readonly',
+        navigator: 'readonly',
+        setInterval: 'readonly',
+        setTimeout: 'readonly',
+      },
+    },
+    rules: {
+      // JSX 组件引用（<Component />）在无 react 插件时不计入变量使用，允许大写组件名和 React 导入
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^(_|[A-Z]|React$)' }],
+      'no-undef': 'error',
+      'no-dupe-keys': 'error',
+      'no-unreachable': 'error',
+      'no-var': 'error',
+      'prefer-const': 'error',
+      eqeqeq: ['error', 'smart'],
+    },
+  },
+]

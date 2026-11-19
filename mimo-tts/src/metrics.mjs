@@ -6,8 +6,6 @@
  * 全从这一个对象取数。
  */
 
-const DAY = 86_400_000
-
 const dayKey = (t = Date.now()) => new Date(t).toISOString().slice(0, 10)
 
 /** 滑动窗口限速：超过 rpm 就排队，而不是让上游返回 429。 */

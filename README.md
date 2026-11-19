@@ -1,102 +1,92 @@
-# 听书值守 · 双端 TTS 插件
+# 听书值守 · Audiobook TTS Plugin
 
-给「阅读」(Legado) 用的在线听书服务。**本地 Qwen3-TTS 是主引擎，MiMo 云端是辅助/兜底**，两端共用同一套控制台和交付流程。装进 DSH 之后，侧栏会出现一个「听书值守」控制台：
-时间线、渲染设置、工程史、交付四个页签，就是一台剪辑台。手机上的 Legado 导入一个地址，
-就能把整本书读出来——旁白和对话自动分音色，每段返回长度正确的 WAV，所以进度条和自动翻页不会错位。
+给「阅读」(Legado) 用的多引擎在线听书服务 + DSH 值守控制台。装进 DSH 后，侧栏会出现「听书值守」（时间线 / 渲染设置 / 工程史 / 交付四个工作面）；手机 Legado 只需粘贴一个导入地址即可听整本书：旁白与对话按引号自动分音色，默认返回长度真实的完整 WAV，阅读进度条与自动翻页精准同步。
 
-> 版本：`@local/mimo-tts` 0.2.0 · 打包日期 2026-11-18
-> 原作者环境：macOS（Mac mini M4）· DSH 0.2.2-rc.3
-> 这个包**不含任何密钥**，也**不含模型权重**。原因见下。
+> 包名：`audiobook-tts-plugin` 0.3.0（兼容旧包身份/数据目录 `mimo-tts`） · MIT License
+> 原作者验证环境：macOS（Apple Silicon）· DSH ≥ 0.2.x · Node ≥ 20
+> 仓库**不含任何密钥**，也**不含模型权重**。
 
 ---
 
-## 先决定：你要哪种引擎
+## 选择你的 TTS 引擎
 
-| | 本地 Qwen3-TTS（主） | 云端 MiMo（辅） |
-|---|---|---|
-| 要什么 | macOS Apple Silicon + 下载 1.9 GB 模型 | 一个小米 MiMo API Key（`sk-` 开头） |
-| 装多久 | 20–40 分钟（看网速） | **5 分钟** |
-| 花钱 | 免费，只吃电 | 目前官方限时免费，之后按量计费（很便宜） |
-| 首段延迟 | 冷启动 ~12 秒，之后 3–6 秒/段 | 1.2–7 秒 |
-| 内存 | 常驻 2.27 GB（空闲自动卸载） | 几乎不占 |
-| 平台 | **只有 macOS Apple Silicon** | macOS / Windows / Linux 都行 |
-| 音色 | 用参考音克隆，无风格指令 | 9 个内置音色；用参考音克隆（混合模式） |
+插件通过标准 `TTSProvider` 接口统一调度四类模式，可在控制台「渲染设置」随时热切换：
 
-**建议：本地为主。** 有 Apple Silicon 的机器直接装本地引擎，免费、离线、隐私握在自己手里。
-云端适合 Windows/Linux 机器，或者想先十分钟听个响的场合。两条路可以同时开（`hybrid` 混合启动），
-本地挂了云端自动接，反过来也行。
+| 引擎模式 | 适用场景 | 依赖与成本 | 特点 |
+|---|---|---|---|
+| **本地 Qwen3-TTS** (`local`) | macOS Apple Silicon 主力离线方案 | 下载 1.9 GB MLX 模型；免费、全离线 | 参考音克隆；空闲自动卸载（释放 ~2.3 GB 内存） |
+| **OpenAI 兼容** (`openai`) | 对接社区本地/云端方案（Kokoro-FastAPI / Edge-TTS-OpenAI / CosyVoice / OpenAI） | 只需 `/v1/audio/speech` 接口；本地对接免 Key | 跨平台（macOS / Linux / Windows / Docker），旁白/对话可独立配音色 |
+| **云端 MiMo** (`mimo`) | 零本地依赖快速上手（macOS / Linux / Windows） | 小米 MiMo API Key（`sk-` / `tp-`） | 9 个内置音色；支持多 Key 轮转冷却与低延迟流式 |
+| **混合启动** (`hybrid`) | 想要首段秒出声 + 后续切本地 | 本地模型 + MiMo Key | 冷启动前几段云端克隆顶班，后台预热本地，缓冲充足后自动切本地 |
 
 ---
 
-## 仓里有什么
+## 仓库结构
 
 ```
-.
-├── README.md                 ← 你正在看的这页
-├── INSTALL.md                ← 完整初始化引导（照着做就行）
-├── TROUBLESHOOTING.md        ← 常见问题：症状 → 原因 → 处理
-├── AI-SETUP-PROMPT.md        ← 整段发给 DSH 里的 AI，让它替你装
-├── mimo-tts/                 ← 插件本体（DSH 插件，也自带独立服务入口）
-│   ├── index.js              宿主半边
-│   ├── client.js             控制台（浏览器半边）
-│   ├── src/                  内核：切分 / WAV / 上游 / 缓存 / 限流
-│   ├── sidecar/              本地 Qwen3-TTS 的 Python 边车
-│   ├── docs/                 四张控制台截图
-│   └── bench/REPORT.md       本地引擎实测报告（RTF、延迟、内存）
-├── refs/                     ← 参考音频（给本地引擎 / 云端克隆用）
-│   ├── narrator-14s.wav      14.2 s · 44100 Hz · 单声道 16 bit
-│   ├── narrator-10s.wav      10.0 s
-│   ├── narrator-5s.wav        5.0 s
-│   └── README.md             逐字文本 + 怎么用
+audiobook-tts-plugin/
+├── README.md                 ← 你正在看的概览
+├── INSTALL.md                ← 从零安装与配置指南（DSH 插件 / 独立服务 / Legado / Tunnel）
+├── TROUBLESHOOTING.md        ← 按症状排查手册
+├── AI-SETUP-PROMPT.md        ← 发给 DSH AI 的一键安装提示词
+├── CHANGELOG.md              ← 版本变更记录
+├── LICENSE                   ← MIT 许可证
+├── mimo-tts/                 ← 插件本体（package.json: audiobook-tts-plugin）
+│   ├── index.js              DSH 宿主半边（挂载 /mimo-tts 与 /audiobook-tts 路由）
+│   ├── client/               控制台模块化前端源码（React + deck.css）
+│   ├── client.js             构建产物（单文件，运行时零外部请求）
+│   ├── bin/                  独立运行入口（audiobook-tts.mjs / mimo-tts.mjs 兼容别名）
+│   ├── src/                  服务内核、切分、WAV 拼接、缓存、鉴权与 providers/
+│   ├── sidecar/              本地 Qwen3-TTS Python/MLX 边车与锁定依赖
+│   ├── test/                 单元与 HTTP 集成测试（node --test）
+│   └── README.md             开发者架构、Provider 扩展与 API 文档
+├── refs/                     默认旁白参考音（5s / 10s / 14s）与逐字文本
 └── setup/
-    ├── download-model.sh     只下模型（支持 hf-mirror 镜像）
-    ├── install-local-engine.sh  建 venv + 装 mlx-audio + 下模型 + 自检
-    ├── check-env.sh          体检：端口 / 模型 / 参考音 / health
-    ├── README-model.md       模型下载失败时的手动办法
-    └── config.example.json   配置文件长什么样（不用手抄）
+    ├── install-local-engine.sh  本地引擎唯一安装入口（venv + 锁定依赖 + 下载 + 校验）
+    ├── download-model.sh        单独下载模型（含 hf-mirror 回退与权重完整性校验）
+    ├── check-env.sh             只读环境体检脚本
+    ├── README-model.md          模型手动下载与排错
+    └── config.example.json      标准配置模板
 ```
 
-仓库根就是包体，clone 下来直接用。`mimo-tts/` 是干净的源码，可以直接装进 DSH，也可以脱离 DSH 用
-`node mimo-tts/bin/mimo-tts.mjs` 单独跑在 NAS 上。
+> 请保持仓库目录完整，不要单独拆出 `mimo-tts/`（`setup/` 脚本会联动 `refs/` 与 `mimo-tts/sidecar/requirements.txt`）。
 
 ---
 
-## 备选：五分钟云端快路径
+## 快速开始
 
-> 主路径是本地引擎（见 [INSTALL.md](INSTALL.md)）。这一节只求解「先听个响」或者没有 Apple Silicon 的机器。
+### 1) 安装进 DSH（推荐）
 
-1. 去 <https://platform.xiaomimimo.com/#/console/api-keys> 注册，建一个 API Key（`sk-` 开头，只显示一次，存好）。
-2. 把仓库 clone 到固定目录（以后不挪、不删）：`git clone https://github.com/JAYcodr/audiobook-tts-plugin.git ~/dsh-plugins/audiobook-tts-plugin`。
-   装进 DSH 的是仓库里的 `mimo-tts/` 子目录；整包别拆（`setup/` 要靠它找 `refs/`）。
-3. 在 DSH 里说一句：「用 plugin_manager 的 install_bundle 安装
-   `~/dsh-plugins/audiobook-tts-plugin/mimo-tts`」。
-4. **完全退出** DSH 再打开（macOS 要连托盘一起退）。
-5. 左栏点「听书值守」→「渲染设置」→ 引擎「渲染来源」选**云端** →
-   「传输」里填 API Key → 保存。
-6. 「交付」页复制导入地址 → 手机 Legado：朗读 → 在线朗读 → 右上角导入 → 粘贴。
-7. 阅读里选「MiMo TTS 听书」，开听。
+```bash
+mkdir -p ~/dsh-plugins
+git clone https://github.com/JAYcodr/audiobook-tts-plugin.git ~/dsh-plugins/audiobook-tts-plugin
+```
 
-细节、报错、验证方式在 [INSTALL.md](INSTALL.md)。
+在 DSH 对话框中让 `plugin_manager` 安装 `~/dsh-plugins/audiobook-tts-plugin/mimo-tts`（或发送 [AI-SETUP-PROMPT.md](AI-SETUP-PROMPT.md) 全文给 AI 自动完成），然后**完全退出并重启 DSH**。
+
+### 2) 或者独立运行（不依赖 DSH，适合 NAS / Linux / Docker）
+
+```bash
+node mimo-tts/bin/audiobook-tts.mjs --port 8291 --data ./data
+```
+
+### 3) 配置引擎并接入 Legado
+
+1. 在左侧栏打开「听书值守」→「渲染设置」：
+   - **OpenAI 兼容（如本地 Kokoro / Edge-TTS）**：渲染来源选 `OpenAI`，填 `http://127.0.0.1:8880/v1`、模型和旁白/对话音色；
+   - **云端 MiMo**：渲染来源选 `云端`，在「传输」填 `sk-...` API Key；
+   - **本地 Qwen3-TTS（macOS arm64）**：先运行 `./setup/install-local-engine.sh`，再把打印的 Python / 模型 / `refs/narrator-14s.wav` 路径填入「本地引擎」。
+2. 保存后在「渲染设置 → 音色」或「交付」页点「**试听旁白 / 试听对话**」确认出声。
+3. 复制「交付」页的**一键导入地址** → 打开手机 Legado → 朗读界面 → 在线朗读 → 右上角网络导入 → 粘贴即可。
+
+详细安装、Cloudflare Tunnel 公网接入与多场景排错请阅读 [INSTALL.md](INSTALL.md) 与 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)。
 
 ---
 
-## 为什么包里没有密钥和模型
+## 验收清单
 
-- **密钥**：这个东西能直接花你的钱、读你的额度。打包里只留占位符，谁的 Key 谁自己建。
-  作者不会把 Key 写进任何要发出去的包里。
-- **模型**：`Qwen3-TTS-12Hz-0.6B-Base-8bit` 是 1.9 GB，塞进包里会变成一个 2 GB 的压缩包，
-  微信/邮件都传不动。`setup/install-local-engine.sh` 会帮你下，并且自带国内镜像回退。
-
----
-
-## 装完的验收清单
-
-- [ ] 侧栏有「听书值守」，点开不是空白
-- [ ] 时间线上「服务」是 RUN（不是 STOP）
-- [ ] `curl -s localhost:8291/health` 返回 JSON
-- [ ] 「交付」页能拿到导入地址，地址里带 `?token=`
-- [ ] Legado 导入成功，引擎列表出现「MiMo TTS 听书」
-- [ ] 播放一段，进度条会走、长段落能自动翻页
-- [ ] 断网测试：服务还在（只是合成会失败），说明是本地服务不是云中转
-
-七条全过，这包就算装完了。任何一条不对，去 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) 按症状查。
+- [ ] 侧栏有「听书值守」，打开显示时间线 / 渲染设置 / 工程史 / 交付四工作面
+- [ ] 走带台状态为 `RUN`，`curl -s http://127.0.0.1:8291/health` 返回 `"status":"ok"`
+- [ ] 控制台点「试听旁白」或「交付」页 curl 能正常返回真实时长的 WAV
+- [ ] Legado 导入成功，引擎列表出现「听书值守 TTS」
+- [ ] 播放时进度条正常推进，长段落能自动翻页

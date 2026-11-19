@@ -17,9 +17,9 @@ cd /path/to/audiobook-tts-plugin
 | 看什么 | 在哪 |
 |---|---|
 | 服务实时流水 | 控制台「时间线」右下角的场记流水 |
-| 本地引擎（Python）日志 | `~/.dsh/plugin-data/mimo-tts/local-engine.log` |
-| 宿主加载失败 | DSH 自己的终端 / 日志里搜 `mimo-tts` |
-| 当前有效配置 | 「渲染设置」右侧生效面板；或 `~/.dsh/plugin-data/mimo-tts/config.json` |
+| 本地引擎（Python）日志 | `<数据目录>/local-engine.log`（默认 `~/.dsh/plugin-data/audiobook-tts-plugin/`，旧版兼容 `mimo-tts/`） |
+| 宿主加载失败 | DSH 自己的终端 / 日志里搜 `audiobook-tts` 或 `mimo-tts` |
+| 当前有效配置 | 「渲染设置」右侧生效面板；或 `<数据目录>/config.json` |
 | 服务健康 | `curl -s localhost:8291/health` |
 
 出问题时**先看最后 20 行日志**，再动手改配置。改完记得点保存——
@@ -34,13 +34,13 @@ cd /path/to/audiobook-tts-plugin
 **先查**：
 
 ```bash
-grep -n "mimo-tts" ~/.dsh/profiles/desktop/package.json
+grep -nE "audiobook-tts-plugin|mimo-tts" ~/.dsh/profiles/desktop/package.json
 ```
 
 **原因 A：只装了依赖，没进 bundles**
 
 只看到 `dependencies` 里那一行 `link:`，`dsh.profile.bundles` 里没有包名。
-→ 手工在 `bundles` 数组里加 `"@local/mimo-tts"`，完全重启。
+→ 手工在 `bundles` 数组里加 `"audiobook-tts-plugin"`，完全重启。
 
 **原因 B：没完全重启**
 
@@ -74,10 +74,10 @@ lsof -nP -iTCP:8291 -sTCP:LISTEN
 
 **处理**：
 
-1. 是**另一个 mimo-tts**（比如你还开着 `node bin/mimo-tts.mjs`）→ 关掉那个，或让插件换端口。
+1. 是**另一个听书服务**（比如你还开着 `node bin/audiobook-tts.mjs`）→ 关掉那个，或让插件换端口。
 2. 是别的程序 → 控制台「传输 → 端口」改成 8292 / 8390，
    保存后服务会自动重启到新端口。**手机上的导入地址也要重导一次**（端口变了）。
-3. 想保留 8291 但让插件不抢：把插件停掉，单独跑 `node bin/mimo-tts.mjs`。
+3. 想保留 8291 但让插件不抢：把插件停掉，单独跑 `node bin/audiobook-tts.mjs`。
 
 > 换端口不杀本地 Python 边车，这是设计如此（避免为了改个端口重新加载 2 GB 模型）。
 
@@ -184,19 +184,19 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 
 ## 8. 本地引擎
 
-### 7.1 一出声就是噪声 / 电流声
+### 8.1 一出声就是噪声 / 电流声
 
 **九成是声码器权重缺失。** `mlx-audio` 找不到 `speech_tokenizer/model.safetensors`
-时**不报错**，直接用随机权重。
+时**不报错**，直接用随机权重。当前插件已在 Node 与 Python 侧启动前强制拦截不完整模型目录。
 
 ```bash
-ls -lh ~/.dsh/plugin-data/mimo-tts/models/qwen3tts-0.6b-base-8bit/speech_tokenizer/model.safetensors
+ls -lh ~/.dsh/plugin-data/audiobook-tts-plugin/models/qwen3tts-0.6b-base-8bit/speech_tokenizer/model.safetensors
 ```
 
 不是 651 MB 左右 → 删掉模型目录重下：
 
 ```bash
-rm -rf ~/.dsh/plugin-data/mimo-tts/models/qwen3tts-0.6b-base-8bit
+rm -rf ~/.dsh/plugin-data/audiobook-tts-plugin/models/qwen3tts-0.6b-base-8bit
 ./setup/download-model.sh
 ```
 

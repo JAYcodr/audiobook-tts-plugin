@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Reading service",
-    "description": "A MiMo TTS proxy for the Legado reader, console and server in one plugin. Narration and dialogue get different voices automatically; each paragraph is returned as a complete, correctly sized WAV so reading progress and page turns stay in sync. Port, API key, voices and cache are editable in the page and apply immediately."
+    "description": "Multi-engine audiobook TTS proxy and console for Legado: supports local Qwen3-TTS (MLX), OpenAI-compatible TTS (/v1/audio/speech), MiMo Cloud, and hybrid mode. Automatically splits narration and dialogue by quotes and returns accurately sized WAV audio so reading progress stays in sync."
   }
 }

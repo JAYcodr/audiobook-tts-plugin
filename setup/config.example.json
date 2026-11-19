@@ -17,6 +17,18 @@
     "model": "mimo-v2.5-tts",
     "timeoutMs": 120000,
     "maxRetry": 3,
+    "openai": {
+      "baseUrl": "https://api.openai.com/v1",
+      "apiKey": "",
+      "model": "tts-1",
+      "narratorVoice": "alloy",
+      "dialogueVoice": "echo",
+      "responseFormat": "wav",
+      "speed": 1.0,
+      "instructions": "",
+      "timeoutMs": 60000,
+      "maxRetry": 2
+    },
     "hybrid": {
       "maxCloudBootstrap": 6,
       "cloudConcurrency": 2,
@@ -53,7 +65,10 @@
     "maxBytes": 536870912,
     "ttlSeconds": 7200
   },
-  "legado": { "extraHeaders": {} },
+  "legado": {
+    "name": "听书值守 TTS",
+    "extraHeaders": {}
+  },
   "limits": { "rpm": 100 },
   "log": { "ring": 500 }
 }

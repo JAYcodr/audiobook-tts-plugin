@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "听书值守",
-    "description": "给「阅读」(Legado) 用的 MiMo TTS 在线听书服务：一个插件里同时放着控制台和代理服务。旁白与对话自动分音色，整段合成后返回长度正确的 WAV，阅读进度与自动翻页不会错位。端口、API Key、音色、缓存都能在页面里改，改完即生效。"
+    "description": "给「阅读」(Legado) 用的多引擎在线听书服务与控制台：支持本地 Qwen3-TTS、OpenAI 兼容（Kokoro/Edge-TTS/CosyVoice）、MiMo 云端与混合启动。旁白与对话按引号自动分音色，返回真实时长 WAV 保证进度与自动翻页准确。"
   }
 }

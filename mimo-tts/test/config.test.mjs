@@ -213,8 +213,7 @@ test('混合启动的云顶段数/克隆并发非法时拒绝', () => {
   }
 })
 
-test('默认配置不含个人用户名痕迹', () => {
-  assert.notEqual(DEFAULTS.auth.user, 'hamelin')
+test('默认配置使用通用用户名 admin', () => {
   assert.equal(DEFAULTS.auth.user, 'admin')
 })
 

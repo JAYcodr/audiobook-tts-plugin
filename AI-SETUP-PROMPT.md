@@ -6,9 +6,7 @@
 
 ---
 
-我在装一个本地插件「听书值守」（`@local/mimo-tts` 0.2.0），它把 MiMo TTS 包成一个给
-Legado（阅读 App）用的在线朗读服务。压缩包已经解压到我电脑上了，目录名是
-`mimo-tts`（里面同时有 `INSTALL.md` / `TROUBLESHOOTING.md` / `mimo-tts/`）。
+我在装一个本地插件「听书值守」（`audiobook-tts-plugin` 0.3.0），它支持本地 Qwen3-TTS、OpenAI 兼容 TTS（Kokoro/Edge-TTS/CosyVoice）、MiMo 云端及混合模式，为 Legado（阅读 App）提供在线朗读服务。仓库已经放到我电脑上了，目录名是 `audiobook-tts-plugin`（里面有 `INSTALL.md` / `TROUBLESHOOTING.md` / `mimo-tts/`）。
 你找不到就先在我常用的下载目录和 `~/dsh-plugins` 下搜一下。
 
 请按顺序做，**每完成一步告诉我结果**（成功/失败 + 关键输出），不要跳步，不要顺手动别的插件。
@@ -31,7 +29,7 @@ mkdir -p ~/dsh-plugins
 ls ~/dsh-plugins/audiobook-tts-plugin/mimo-tts/package.json
 ```
 
-**验证**：`package.json` 里有 `"name": "@local/mimo-tts"`。
+**验证**：`package.json` 里有 `"name": "audiobook-tts-plugin"`。
 
 ## 第 2 步：确认 DSH 版本
 
@@ -47,7 +45,7 @@ dsh --version
 
 > `plugin_manager` → `action: "install_bundle"`，`target` 填 `~/dsh-plugins/audiobook-tts-plugin/mimo-tts` 的**绝对路径**。
 
-它会做两件事：把 `@local/mimo-tts` 写进 profile 依赖（`link:` 形式），并加进
+它会做两件事：把 `audiobook-tts-plugin` 写进 profile 依赖（`link:` 形式），并加进
 `dsh.profile.bundles`。如果它报错、或者装完 `bundles` 里没有这一项，用兜底方案：
 
 ```bash
@@ -56,12 +54,12 @@ dsh plugin --profile desktop add link:$HOME/dsh-plugins/audiobook-tts-plugin/mim
 ```
 
 然后手工编辑 `~/.dsh/profiles/desktop/package.json`，在 `dsh.profile.bundles` 数组里
-加一行 `"@local/mimo-tts"`（放在已有条目后面即可，JSON 别写坏）。
+加一行 `"audiobook-tts-plugin"`（放在已有条目后面即可，JSON 别写坏）。
 
 **验证**：
 
 ```bash
-grep -n "mimo-tts" ~/.dsh/profiles/desktop/package.json
+grep -n "audiobook-tts-plugin" ~/.dsh/profiles/desktop/package.json
 ```
 
 必须能看到**两处**：`dependencies` 里的 `link:`，和 `bundles` 里的包名。

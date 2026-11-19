@@ -7,7 +7,22 @@
 # 输出里 OK / WARN / FAIL 三类，最后一行是总结。
 set -uo pipefail
 
-DATA="${MIMO_DATA:-${DSH_HOME:-$HOME/.dsh}/plugin-data/mimo-tts}"
+resolve_data_dir() {
+  if [ -n "${AUDIOBOOK_DATA:-${MIMO_DATA:-}}" ]; then
+    printf '%s' "${AUDIOBOOK_DATA:-$MIMO_DATA}"
+    return
+  fi
+  local dsh_home="${DSH_HOME:-$HOME/.dsh}"
+  local modern="$dsh_home/plugin-data/audiobook-tts-plugin"
+  local legacy="$dsh_home/plugin-data/mimo-tts"
+  if [ ! -d "$modern" ] && [ -d "$legacy" ]; then
+    printf '%s' "$legacy"
+  else
+    printf '%s' "$modern"
+  fi
+}
+
+DATA="$(resolve_data_dir)"
 CONFIG="$DATA/config.json"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACK="$(cd "$HERE/.." && pwd)"
@@ -18,16 +33,19 @@ p_ok()   { printf '  \033[32mOK\033[0m   %s\n' "$*"; ok=$((ok+1)); }
 p_warn() { printf '  \033[33mWARN\033[0m %s\n' "$*"; warn=$((warn+1)); }
 p_fail() { printf '  \033[31mFAIL\033[0m %s\n' "$*"; fail=$((fail+1)); }
 
-json() { # json <key.path>  —— 够用的取值，不追求通用
+json() {
   [ -f "$CONFIG" ] || return 1
   python3 - "$CONFIG" "$1" <<'PY' 2>/dev/null
-import json,sys
-d=json.load(open(sys.argv[1]))
+import json, sys
+d = json.load(open(sys.argv[1]))
 for k in sys.argv[2].split('.'):
-    if isinstance(d,list): d=d[int(k)]
-    else: d=d.get(k) if isinstance(d,dict) else None
-    if d is None: sys.exit(1)
-print(d if not isinstance(d,(dict,list)) else json.dumps(d,ensure_ascii=False))
+    if isinstance(d, list):
+        d = d[int(k)]
+    else:
+        d = d.get(k) if isinstance(d, dict) else None
+    if d is None:
+        sys.exit(1)
+print(d if not isinstance(d, (dict, list)) else json.dumps(d, ensure_ascii=False))
 PY
 }
 
@@ -36,7 +54,7 @@ echo "  $(uname -sm)  ·  bash ${BASH_VERSION%%(*}"
 if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
   p_ok "可以跑本地引擎"
 else
-  p_warn "不是 macOS arm64 —— 本地引擎用不了，云端没问题"
+  p_warn "不是 macOS arm64 —— 本地引擎用不了，OpenAI 兼容与云端没问题"
 fi
 
 echo
@@ -64,10 +82,10 @@ if curl -s --max-time 3 "http://127.0.0.1:$PORT/health" -o /tmp/mtts-health.$$ 2
   if grep -qE '"status": *"ok"' /tmp/mtts-health.$$ 2>/dev/null; then
     p_ok "health 正常"
     python3 - /tmp/mtts-health.$$ <<'PY' 2>/dev/null || true
-import json,sys
-d=json.load(open(sys.argv[1]))
+import json, sys
+d = json.load(open(sys.argv[1]))
 print(f"       running={d.get('running')} provider={d.get('provider')} v={d.get('version')} up={d.get('uptimeSec')}s")
-loc=d.get('local') or {}
+loc = d.get('local') or {}
 print(f"       local={loc.get('state')} pid={loc.get('pid')} rss={loc.get('rssMb')}MB")
 PY
   else
@@ -113,7 +131,7 @@ if [ -x "$DATA/venv/bin/python" ]; then
   "$DATA/venv/bin/python" -c 'import mlx_audio' 2>/dev/null \
     && p_ok "mlx_audio 可导入" || p_fail "mlx_audio 导入失败（重跑 install-local-engine.sh）"
 else
-  p_warn "没有 venv —— 只跑云端的话不需要"
+  p_warn "没有 venv —— 用 OpenAI 兼容或云端时不需要"
 fi
 
 echo

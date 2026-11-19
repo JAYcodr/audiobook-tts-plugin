@@ -27,9 +27,9 @@
 **Windows 用户**：云端路线完全可用；本地引擎（MLX）不行。
 差别只有三处：
 
-- 路径写成 `C:\Users\你\dsh-plugins\mimo-tts`；
+- 路径写成 `C:\Users\你\dsh-plugins\audiobook-tts-plugin\mimo-tts`；
 - `setup/*.sh` 别跑，那是给 macOS/Linux 的；
-- 配置目录是 `%USERPROFILE%\.dsh\plugin-data\mimo-tts\`。
+- 配置目录是 `%USERPROFILE%\.dsh\plugin-data\audiobook-tts-plugin\`（若已有旧版 `mimo-tts` 目录会自动兼容沿用）。
 
 其余步骤（装插件、重启、填 Key、导入 Legado）一模一样。
 
@@ -72,8 +72,8 @@ ls ~/dsh-plugins/audiobook-tts-plugin/refs/
 
 > 用 plugin_manager 的 install_bundle，target 填 `/Users/你/dsh-plugins/audiobook-tts-plugin/mimo-tts` 的绝对路径。
 
-它会要求授权——同意。安装器做的事是：把 `@local/mimo-tts` 以 `link:` 方式写进
-profile 的依赖，并把 `@local/mimo-tts` 加进 `dsh.profile.bundles`（包里有
+它会要求授权——同意。安装器做的事是：把 `audiobook-tts-plugin` 以 `link:` 方式写进
+profile 的依赖，并把 `audiobook-tts-plugin` 加进 `dsh.profile.bundles`（包里有
 `dsh.bundle.patch`，所以侧栏入口会跟着加载）。
 
 ### 2.3 兜底：命令行
@@ -97,7 +97,7 @@ dsh plugin --profile desktop add link:$HOME/dsh-plugins/audiobook-tts-plugin/mim
       "bundles": [
         "@deepseek-ai/dsh-base",
         "...",
-        "@local/mimo-tts"
+        "audiobook-tts-plugin"
       ]
     }
   }
@@ -109,11 +109,11 @@ dsh plugin --profile desktop add link:$HOME/dsh-plugins/audiobook-tts-plugin/mim
 ### 验证
 
 ```bash
-grep -n "mimo-tts" ~/.dsh/profiles/desktop/package.json
+grep -n "audiobook-tts-plugin" ~/.dsh/profiles/desktop/package.json
 ```
 
-应该能看到两处：`dependencies` 里的 `"@local/mimo-tts": "link:/.../audiobook-tts-plugin/mimo-tts"`，
-和 `bundles` 里的 `"@local/mimo-tts"`。
+应该能看到两处：`dependencies` 里的 `"audiobook-tts-plugin": "link:/.../audiobook-tts-plugin/mimo-tts"`，
+和 `bundles` 里的 `"audiobook-tts-plugin"`。
 
 ---
 
@@ -185,7 +185,9 @@ curl -s http://127.0.0.1:8291/health
 
 点保存。右侧「生效面板」应该显示没有待生效项。
 
-> 界面里没有「试听」按钮——试听在「交付」页，是一条可以直接复制的 curl。
+> 你可以在「音色」模块或「交付」页直接点「**试听旁白 / 试听对话**」播放验证；也可以用下方的 curl 命令行验证。
+
+> **OpenAI 兼容引擎（Kokoro / Edge-TTS / CosyVoice / OpenAI）**：如果你想接入社区的 `/v1/audio/speech` 服务，只需在「渲染设置 → 引擎」将渲染来源切换为 `OpenAI`，再在「03 OpenAI 兼容」模块填写接口地址（如 `http://127.0.0.1:8880/v1`）、模型名和旁白/对话音色即可（自建服务无需填 API Key）。
 
 ### 5.3 试一句
 
@@ -234,7 +236,7 @@ http://192.168.1.5:8291/legado.json?token=EXAMPLETOKEN123
 
 1. 手机 Legado → 一本书 → 朗读 → **在线朗读**
 2. 右上角「导入」→ 粘贴上面的地址 → 确定
-3. 引擎列表里出现 **MiMo TTS 听书** → 选中
+3. 引擎列表里出现 **听书值守 TTS**（或你在 `legado.name` 中自定义的名称）→ 选中
 
 ### 6.3 两个开关
 
@@ -247,7 +249,7 @@ http://192.168.1.5:8291/legado.json?token=EXAMPLETOKEN123
 ### 6.4 验证
 
 ```bash
-TOKEN=$(python3 -c "import json;print(json.load(open('$HOME/.dsh/plugin-data/mimo-tts/config.json'))['auth']['token'])")
+TOKEN=$(python3 -c "import json,os;p=os.path.expanduser('~/.dsh/plugin-data/audiobook-tts-plugin/config.json');p=p if os.path.exists(p) else os.path.expanduser('~/.dsh/plugin-data/mimo-tts/config.json');print(json.load(open(p))['auth']['token'])")
 curl -s -o /tmp/t.wav -w '%{http_code} %{size_download} bytes\n' \
   "http://127.0.0.1:8291/listening?token=$TOKEN" \
   -H 'Content-Type: application/x-www-form-urlencoded' \
@@ -398,25 +400,27 @@ caffeinate -s          # 前台挂着；或者去「节能」里关掉睡眠
 **B. 把内核单独跑起来**（不依赖 DSH；纯 Node，NAS 也能跑——但本地引擎只支持 Mac）
 
 ```bash
-node ~/dsh-plugins/audiobook-tts-plugin/mimo-tts/bin/mimo-tts.mjs \
-  --port 8291 --data ~/mimo-tts-data
+node ~/dsh-plugins/audiobook-tts-plugin/mimo-tts/bin/audiobook-tts.mjs \
+  --port 8291 --data ~/audiobook-tts-data
 ```
 
-内核是零依赖纯 Node，`bin/mimo-tts.mjs` 不 import 任何 DSH 的东西。
+内核是零依赖纯 Node，`bin/audiobook-tts.mjs`（兼容别名 `bin/mimo-tts.mjs`）不 import 任何 DSH 的东西。
 这种跑法下 DSH 只当控制台（插件仍然可以装，但别让它同时抢同一个端口）。
 
 ---
 
 ## 10. 文件都在哪
 
+全新安装的数据目录默认在 `~/.dsh/plugin-data/audiobook-tts-plugin/`（如果检测到旧版 `~/.dsh/plugin-data/mimo-tts/` 目录已存在，会自动沿用旧目录）：
+
 | 东西 | 路径 |
 |---|---|
-| 配置 | `~/.dsh/plugin-data/mimo-tts/config.json` |
+| 配置 | `<数据目录>/config.json` |
 | 配置备份（上一版） | `config.json.bak` |
-| 本地引擎参考音清单 | `~/.dsh/plugin-data/mimo-tts/local-refs.json`（自动生成，别手改） |
-| 本地引擎日志 | `~/.dsh/plugin-data/mimo-tts/local-engine.log` |
-| Python 虚拟环境 | `~/.dsh/plugin-data/mimo-tts/venv` |
-| 模型 | `~/.dsh/plugin-data/mimo-tts/models/qwen3tts-0.6b-base-8bit` |
+| 本地引擎参考音清单 | `<数据目录>/local-refs.json`（自动生成，别手改） |
+| 本地引擎日志 | `<数据目录>/local-engine.log` |
+| Python 虚拟环境 | `<数据目录>/venv` |
+| 模型 | `<数据目录>/models/qwen3tts-0.6b-base-8bit` |
 | 音频缓存 | **内存里**（默认上限 512 MB / 500 条 / TTL 2 小时），重启即清 |
 
 `DSH_HOME` 改过的话，把上面的 `~/.dsh` 换成 `$DSH_HOME`。

@@ -9,7 +9,22 @@
 # 少了声码器权重，mlx-audio 不报错、直接输出噪声 —— 这是踩过的坑，所以必须查。
 set -euo pipefail
 
-DATA="${MIMO_DATA:-$HOME/.dsh/plugin-data/mimo-tts}"
+resolve_data_dir() {
+  if [ -n "${AUDIOBOOK_DATA:-${MIMO_DATA:-}}" ]; then
+    printf '%s' "${AUDIOBOOK_DATA:-$MIMO_DATA}"
+    return
+  fi
+  local dsh_home="${DSH_HOME:-$HOME/.dsh}"
+  local modern="$dsh_home/plugin-data/audiobook-tts-plugin"
+  local legacy="$dsh_home/plugin-data/mimo-tts"
+  if [ ! -d "$modern" ] && [ -d "$legacy" ]; then
+    printf '%s' "$legacy"
+  else
+    printf '%s' "$modern"
+  fi
+}
+
+DATA="$(resolve_data_dir)"
 MODEL="${MODEL:-$DATA/models/qwen3tts-0.6b-base-8bit}"
 VENV="${VENV:-$DATA/venv}"
 REPO="mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
@@ -23,7 +38,7 @@ fi
 
 if ! "$PY" -c 'import huggingface_hub' >/dev/null 2>&1; then
   echo "[0/3] 装 huggingface_hub"
-  "$PY" -m pip install --quiet --upgrade huggingface_hub
+  "$PY" -m pip install --quiet "huggingface-hub==2.4.0"
 fi
 
 ok() {

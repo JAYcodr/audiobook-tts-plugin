@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, 'agent/**']
+  pull_request:
+
+jobs:
+  node-ci:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ['20', '22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: mimo-tts/package-lock.json
+      - name: Install devDependencies
+        working-directory: mimo-tts
+        run: npm ci
+      - name: Lint
+        working-directory: mimo-tts
+        run: npm run lint
+      - name: Scan for leaked secrets
+        working-directory: mimo-tts
+        run: npm run check:secrets
+      - name: Build client bundle & verify clean diff
+        working-directory: mimo-tts
+        run: |
+          npm run build:client
+          node --check client.js
+          git diff --exit-code client.js
+      - name: Run unit and integration tests
+        working-directory: mimo-tts
+        run: npm test
+
+  python-shell-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check sidecar Python syntax and pinned requirements
+        run: |
+          python3 -m py_compile mimo-tts/sidecar/server.py
+          python3 - <<'PY'
+          from pathlib import Path
+          lines = [
+              l.strip()
+              for l in Path('mimo-tts/sidecar/requirements.txt').read_text(encoding='utf-8').splitlines()
+              if l.strip() and not l.strip().startswith('#')
+          ]
+          assert lines, 'requirements.txt 不能为空'
+          for line in lines:
+              pkg = line.split(';', 1)[0].strip()
+              assert '==' in pkg, f'依赖未精确锁定版本: {line}'
+          print(f'Verified {len(lines)} pinned Python dependencies.')
+          PY
+      - name: Check setup shell scripts syntax
+        run: bash -n setup/*.sh
