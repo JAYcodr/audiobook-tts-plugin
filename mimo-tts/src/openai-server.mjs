@@ -81,9 +81,9 @@ function resolveVoiceSpec(voiceRaw, cfg, service) {
   if (target === 'auto') return { kind: 'auto' }
   if (target === 'narrator') return { kind: 'narrator' }
   if (target === 'dialogue') return { kind: 'dialogue' }
+  if (target && service.provider === 'openai') return { kind: 'openai-custom', voice: target }
   if (PRESET_VOICES.includes(target)) return { kind: 'preset', voice: target }
   if (target && service.refs?.get(target)) return { kind: 'clone', refId: target }
-  if (target && service.provider === 'openai') return { kind: 'openai-custom', voice: target }
   return { kind: 'auto' }
 }
 

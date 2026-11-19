@@ -182,7 +182,7 @@ export function SettingsView({
   )
   const toggle = (path, label) => <Toggle label={label} checked={Boolean(d[path])} onChange={(v) => onSet(path, v)} />
   const twoCol = (...children) => (
-    <div className="field" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+    <div className="field field-two-col">
       {children}
     </div>
   )
@@ -364,6 +364,7 @@ export function SettingsView({
     const refPath = `upstream.local.refs.${roleKey}.refId`
     const wavPath = `upstream.local.refs.${roleKey}.wav`
     const textPath = `upstream.local.refs.${roleKey}.text`
+    const shortRole = roleKey === 'dialogue' ? '对话' : '旁白'
     const selected = refsList.find((r) => r.id === d[refPath])
     return (
       <div className="local-ref-slot">
@@ -383,8 +384,8 @@ export function SettingsView({
           </div>
         ) : (
           twoCol(
-            <Field label={`${label}路径`} sub="WAV (支持 ~/)" style={{ padding: 0 }}>{input(wavPath, { spellCheck: false })}</Field>,
-            <Field label={`${label}逐字文本`} sub="TEXT" style={{ padding: 0 }}>{input(textPath)}</Field>,
+            <Field label={`${shortRole}路径`} sub="WAV (~/)" style={{ padding: 0 }}>{input(wavPath, { spellCheck: false })}</Field>,
+            <Field label={`${shortRole}文本`} sub="TEXT" style={{ padding: 0 }}>{input(textPath)}</Field>,
           )
         )}
       </div>
@@ -727,8 +728,8 @@ export function SettingsView({
                   <Field label="KV 键名" sub="KEY NAME" style={{ padding: 0 }}>{input('tunnel.kvSync.keyName', { spellCheck: false, placeholder: 'tunnel_url' })}</Field>,
                 )}
                 {twoCol(
-                  <Field label="KV Namespace ID" sub="NAMESPACE" style={{ padding: 0 }}>{input('tunnel.kvSync.kvNamespaceId', { spellCheck: false })}</Field>,
-                  <Field label="Account ID (API 模式)" sub="ACCOUNT" style={{ padding: 0 }}>{input('tunnel.kvSync.accountId', { spellCheck: false })}</Field>,
+                  <Field label="KV Namespace ID" sub="KV ID" style={{ padding: 0 }}>{input('tunnel.kvSync.kvNamespaceId', { spellCheck: false })}</Field>,
+                  <Field label="Account ID" sub="API 模式" style={{ padding: 0 }}>{input('tunnel.kvSync.accountId', { spellCheck: false })}</Field>,
                 )}
               </div>
             </div>,
@@ -745,9 +746,28 @@ export function SettingsView({
                   <div className="cl"><b>启用对外 OpenAI 端点</b><i>ENABLED</i></div>
                   {toggle('openaiServer.enabled', '启用对外 OpenAI 端点')}
                 </div>
-                <Field label="独立 Bearer 密钥" sub="API KEY · 留空则复用 auth.token">
+                <div className="ctrl-row">
+                  <div className="cl"><b>按引号切分旁白/对话</b><i>SPLIT DIALOGUE</i></div>
+                  {toggle('openaiServer.splitDialogue', '按引号切分旁白/对话')}
+                </div>
+                <Field label="默认推荐模型名" sub="MODEL">{input('openaiServer.defaultModel', { spellCheck: false, placeholder: 'audiobook-tts' })}</Field>
+              </div>
+              <div>
+                <div className="ctrl-row">
+                  <div className="cl"><b>MP3 请求处理策略</b><i>MP3 FALLBACK</i></div>
+                  <Seg
+                    options={[
+                      { value: 'wav', label: 'WAV 回退' },
+                      { value: 'strict', label: '严格 400' },
+                    ]}
+                    value={d['openaiServer.mp3Fallback'] || 'wav'}
+                    ariaLabel="MP3 格式回退策略"
+                    onChange={(v) => onSet('openaiServer.mp3Fallback', v)}
+                  />
+                </div>
+                <Field label="独立 Bearer 密钥" sub="留空复用 Token">
                   <div className="addr" style={{ gap: 6 }}>
-                    {input('openaiServer.apiKey', { spellCheck: false, placeholder: '留空则复用 URL 令牌，或点右侧生成 sk-ab-...' })}
+                    {input('openaiServer.apiKey', { spellCheck: false, placeholder: '留空复用 Token，或点生成…' })}
                     <button
                       className="btn btn--sm btn--tape"
                       type="button"
@@ -770,89 +790,72 @@ export function SettingsView({
                     ) : null}
                   </div>
                 </Field>
-                <div className="ctrl-row">
-                  <div className="cl"><b>按引号切分旁白/对话</b><i>SPLIT DIALOGUE</i></div>
-                  {toggle('openaiServer.splitDialogue', '按引号切分旁白/对话')}
-                </div>
-                <div className="ctrl-row">
-                  <div className="cl"><b>MP3 请求处理策略</b><i>MP3 FALLBACK</i></div>
-                  <Seg
-                    options={[
-                      { value: 'wav', label: 'WAV 兼容回退' },
-                      { value: 'strict', label: '严格模式 (400)' },
-                    ]}
-                    value={d['openaiServer.mp3Fallback'] || 'wav'}
-                    ariaLabel="MP3 格式回退策略"
-                    onChange={(v) => onSet('openaiServer.mp3Fallback', v)}
-                  />
-                </div>
-                <Field label="默认推荐模型名" sub="MODEL">{input('openaiServer.defaultModel', { spellCheck: false, placeholder: 'audiobook-tts' })}</Field>
               </div>
-              <div className="voicemap-box">
-                <div className="ds-hd" style={{ marginBottom: 4 }}>
-                  <span className="silk">VOICE MAP <b>音色映射表</b></span>
-                  <button
-                    className="btn btn--sm btn--ghost"
-                    type="button"
-                    onClick={() => onSet('openaiServer.voiceMap', { ...DEFAULT_OPENAI_VOICE_MAP })}
-                  >
-                    恢复默认
-                  </button>
-                </div>
-                <p className="hint" style={{ marginTop: 0, marginBottom: 6 }}>
-                  支持填 <code>auto</code>（自动切分）、<code>narrator</code>（全段旁白）、<code>dialogue</code>（全段对话）、MiMo 预置名（如 <code>冰糖</code>/<code>茉莉</code>）、参考音 ID 或 OpenAI 自定义音色。
-                </p>
-                <div className="voicemap-table">
-                  {voiceMapEntries.map(([vk, vv]) => (
-                    <div key={vk} className="voicemap-row">
-                      <span className="mono vm-key">{vk}</span>
-                      <span className="muted">→</span>
-                      <input
-                        className="input"
-                        value={vv}
-                        spellCheck={false}
-                        aria-label={`音色映射 ${vk}`}
-                        onChange={(e) => setMapEntry(vk, e.target.value)}
-                      />
-                      <select
-                        className="input vm-quick"
-                        value={['auto', 'narrator', 'dialogue', ...presetVoices].includes(vv) ? vv : ''}
-                        aria-label={`快捷选择 ${vk}`}
-                        onChange={(e) => { if (e.target.value) setMapEntry(vk, e.target.value) }}
-                      >
-                        <option value="">快捷选…</option>
-                        <option value="auto">auto (自动切分)</option>
-                        <option value="narrator">narrator (旁白)</option>
-                        <option value="dialogue">dialogue (对话)</option>
-                        {presetVoices.map((pv) => <option key={pv} value={pv}>{pv}</option>)}
-                      </select>
-                      <button
-                        className="btn btn--sm btn--ghost"
-                        type="button"
-                        title={`删除映射 ${vk}`}
-                        onClick={() => removeMapEntry(vk)}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                  <div className="voicemap-add">
+            </div>,
+            <div key="oas-vm" className="voicemap-box">
+              <div className="ds-hd" style={{ marginBottom: 2 }}>
+                <span className="silk">VOICE MAP <b>音色映射表</b></span>
+                <button
+                  className="btn btn--sm btn--ghost"
+                  type="button"
+                  onClick={() => onSet('openaiServer.voiceMap', { ...DEFAULT_OPENAI_VOICE_MAP })}
+                >
+                  恢复默认
+                </button>
+              </div>
+              <p className="hint" style={{ marginTop: 0, marginBottom: 4 }}>
+                支持填 <code>auto</code>（自动切分）、<code>narrator</code>（全段旁白）、<code>dialogue</code>（全段对话）、MiMo 预置名（如 <code>冰糖</code>/<code>茉莉</code>）、参考音 ID 或 OpenAI 自定义音色。
+              </p>
+              <div className="voicemap-table">
+                {voiceMapEntries.map(([vk, vv]) => (
+                  <div key={vk} className="voicemap-row">
+                    <span className="mono vm-key" title={vk}>{vk}</span>
+                    <span className="muted">→</span>
                     <input
                       className="input"
-                      value={newMapVoice}
-                      placeholder="新增 voice 名（如 custom）"
+                      value={vv}
                       spellCheck={false}
-                      onChange={(e) => setNewMapVoice(e.target.value)}
+                      aria-label={`音色映射 ${vk}`}
+                      onChange={(e) => setMapEntry(vk, e.target.value)}
                     />
-                    <input
-                      className="input"
-                      value={newMapTarget}
-                      placeholder="目标（auto/narrator/音色）"
-                      spellCheck={false}
-                      onChange={(e) => setNewMapTarget(e.target.value)}
-                    />
-                    <button className="btn btn--sm" type="button" onClick={addMapEntry}>添加</button>
+                    <select
+                      className="input vm-quick"
+                      value={['auto', 'narrator', 'dialogue', ...presetVoices].includes(vv) ? vv : ''}
+                      aria-label={`快捷选择 ${vk}`}
+                      onChange={(e) => { if (e.target.value) setMapEntry(vk, e.target.value) }}
+                    >
+                      <option value="">快捷…</option>
+                      <option value="auto">auto · 自动</option>
+                      <option value="narrator">narrator · 旁白</option>
+                      <option value="dialogue">dialogue · 对话</option>
+                      {presetVoices.map((pv) => <option key={pv} value={pv}>{pv}</option>)}
+                    </select>
+                    <button
+                      className="btn btn--sm btn--ghost"
+                      type="button"
+                      title={`删除映射 ${vk}`}
+                      onClick={() => removeMapEntry(vk)}
+                    >
+                      ×
+                    </button>
                   </div>
+                ))}
+                <div className="voicemap-add">
+                  <input
+                    className="input"
+                    value={newMapVoice}
+                    placeholder="新增 voice 名（如 custom）"
+                    spellCheck={false}
+                    onChange={(e) => setNewMapVoice(e.target.value)}
+                  />
+                  <input
+                    className="input"
+                    value={newMapTarget}
+                    placeholder="目标（auto / narrator / 音色）"
+                    spellCheck={false}
+                    onChange={(e) => setNewMapTarget(e.target.value)}
+                  />
+                  <button className="btn btn--sm" type="button" onClick={addMapEntry}>添加</button>
                 </div>
               </div>
             </div>,
@@ -891,7 +894,11 @@ export function SettingsView({
             <Rowx k="限速" v={`${d['limits.rpm'] || '—'} 次/分`} />
             <Rowx k="缓存" v={`${d['cache.maxEntries'] || '—'} 条 · TTL ${ttlText(d['cache.ttlSeconds'])}`} />
             <Rowx k="OpenAI 端点" v={d['openaiServer.enabled'] ? '已开启' : '已关闭'} />
-            <Rowx k="对外地址" v={d['server.publicUrl'] || d['tunnel.kvSync.publicRelayUrl'] || '未设置'} />
+            <Rowx
+              k="对外地址"
+              v={d['server.publicUrl'] || d['tunnel.kvSync.publicRelayUrl'] || '未设置'}
+              title={d['server.publicUrl'] || d['tunnel.kvSync.publicRelayUrl'] || ''}
+            />
           </div>
           <div className="rowx">
             <span>最后生效</span>

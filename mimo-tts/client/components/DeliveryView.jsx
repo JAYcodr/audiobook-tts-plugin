@@ -245,7 +245,7 @@ export function DeliveryView({
           ) : null}
           <div className="addr-note" id="importNote">
             {lanUrls.length
-              ? `局域网 ${lanUrls[0]} · 手机与电脑需在同一网段${publicJson ? '' : ' · 对外地址未设置'}`
+              ? `局域网 ${lanUrls[0]} · 手机与电脑需在同一网段${publicJson ? '' : imp.relayBaseUrl ? ' · 中转公网就绪' : imp.quickTunnelUrl ? ' · Quick Tunnel 运行中' : ' · 对外地址未设置'}`
               : '宿主还没探测到局域网地址 · 仍可用下方 curl 或「试听」在本机验证'}
           </div>
         </div>

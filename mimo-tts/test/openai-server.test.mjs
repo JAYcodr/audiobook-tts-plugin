@@ -409,6 +409,17 @@ test('底层为 OpenAI Provider 时透传自定义 voice 与 speed 且正确隔�
     assert.equal(r2.status, 200)
     assert.equal(upstreamCalls.length, 2)
     assert.equal(upstreamCalls[1].speed, 0.9)
+
+    // 上游为 OpenAI Provider 时，与 MiMo 预置同名的英文音色（如 Mia）也应原样透传
+    const r3 = await callSvc(svc, {
+      method: 'POST',
+      url: '/v1/audio/speech',
+      headers,
+      body: JSON.stringify({ input: '同名音色透传测试。', voice: 'Mia' }),
+    })
+    assert.equal(r3.status, 200)
+    assert.equal(upstreamCalls.length, 3)
+    assert.equal(upstreamCalls[2].voice, 'Mia')
   } finally {
     globalThis.fetch = prevFetch
     await svc?.stop().catch(() => {})

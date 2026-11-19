@@ -125,10 +125,11 @@ ingress:
   - 可用系统 `crontab` 或 DSH 定时任务每 5 分钟执行一次兜底脚本：
 
 ```bash
-*/5 * * * * node /绝对路径/audiobook-tts-plugin/deploy/cf-worker-relay/sync-tunnel-url.mjs \
-  --from-api http://127.0.0.1:8291/mimo-tts/api/tunnel/status \
+*/5 * * * * AUDIOBOOK_API_TOKEN=<URL_TOKEN> node /绝对路径/audiobook-tts-plugin/deploy/cf-worker-relay/sync-tunnel-url.mjs \
+  --from-api http://127.0.0.1:8291/api/tunnel/status \
   --mode wrangler --namespace-id <KV_NAMESPACE_ID> >/tmp/ab-kv-sync.log 2>&1
 ```
+（若走 DSH 宿主管线，也可直接填 `http://127.0.0.1:<GUI端口>/mimo-tts/api/tunnel/status`，无需 Token。）
 
 详细 5 步部署与卸载回收命令见 [deploy/cf-worker-relay/README.md](deploy/cf-worker-relay/README.md)。
 

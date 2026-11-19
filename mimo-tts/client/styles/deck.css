@@ -163,7 +163,6 @@
   .mtt .role-grid, .mtt .detect-grid, .mtt .ref-up-grid, .mtt .lex-row-pair, .mtt .synth-cols{grid-template-columns:minmax(0,1fr)}
   .mtt .doc-row{grid-template-columns:18px minmax(0,1fr)}
   .mtt .doc-msg{grid-column:2}
-  .mtt .voicemap-row, .mtt .voicemap-add{grid-template-columns:minmax(0,1fr)}
 }
 
 /* Phase 3 (v0.5.0) HTTPS access & OpenAI server controls */
@@ -177,10 +176,29 @@
 .mtt .https-warn{font:11px/1.55 var(--mono);color:var(--ink);background:var(--grease-soft);border:1px solid var(--grease);padding:5px 8px;border-radius:var(--r)}
 .mtt .https-pitfalls{font:11px/1.55 var(--mono);color:var(--ink);background:var(--well);border-left:3px solid var(--grease);padding:6px 8px}
 .mtt .https-err{font-size:11px;color:var(--grease)}
-.mtt .voicemap-box{display:flex;flex-direction:column;gap:4px}
-.mtt .voicemap-table{display:flex;flex-direction:column;gap:5px}
-.mtt .voicemap-row{display:grid;grid-template-columns:72px 14px minmax(0,1fr) 110px auto;gap:5px;align-items:center}
-.mtt .voicemap-add{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:6px;align-items:center;margin-top:3px;padding-top:5px;border-top:1px dashed var(--line)}
+.mtt .voicemap-box{display:flex;flex-direction:column;gap:5px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}
+.mtt .voicemap-table{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 12px}
+.mtt .voicemap-row{display:grid;grid-template-columns:54px 10px minmax(0,1fr) 88px auto;gap:4px;align-items:center;min-width:0}
+.mtt .voicemap-add{grid-column:1 / -1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:6px;align-items:center;margin-top:3px;padding-top:6px;border-top:1px dashed var(--line)}
 .mtt .vm-key{font-size:11px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mtt .vm-quick{font-size:11px}
+.mtt .vm-quick{font-size:11px;padding:3px 4px}
 .mtt .openai-card .spec{grid-template-columns:86px minmax(0,1fr) auto}
+
+/* Gatekeeper polish: prevent grid/flex overflow & label clipping */
+.mtt .head--take{padding:0}
+.mtt .head--take .counter{font-size:18px;line-height:1}
+.mtt .head--take > div > small{margin-top:1px;line-height:1.15}
+.mtt .knob-row{align-items:flex-start}
+.mtt .knob-row > .field{min-width:120px}
+.mtt .field-two-col{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+.mtt .field .fl{min-width:0;flex-wrap:wrap;gap:2px 6px;white-space:normal}
+.mtt .field .fl i{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.mtt .addr > .input{flex:1 1 0%;min-width:0;width:auto}
+.mtt .addr > .btn{flex:0 0 auto}
+.mtt .apply-sum .rowx > span{flex:0 0 auto}
+.mtt .apply-sum .rowx > b{min-width:0;overflow:hidden;text-overflow:ellipsis}
+@container (max-width:900px){
+  .mtt .field-two-col{grid-template-columns:minmax(0,1fr)}
+  .mtt .voicemap-table{grid-template-columns:minmax(0,1fr)}
+  .mtt .voicemap-row, .mtt .voicemap-add{grid-template-columns:minmax(0,1fr)}
+}

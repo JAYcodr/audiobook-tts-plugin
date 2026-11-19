@@ -39,6 +39,8 @@ export function Panel() {
   const toastTimer = useRef(null)
   const syncedRef = useRef('')
   const rootObs = useRef(null)
+  const roRaf = useRef(0)
+  const lastPanelW = useRef(0)
 
   const showToast = useCallback((text) => {
     setToast(text)
@@ -75,6 +77,7 @@ export function Panel() {
   }, [])
 
   useEffect(() => () => {
+    if (roRaf.current) cancelAnimationFrame(roRaf.current)
     if (rootObs.current) rootObs.current.disconnect()
   }, [])
 
@@ -351,14 +354,24 @@ export function Panel() {
   })
 
   const rootRef = useCallback((node) => {
+    if (roRaf.current) {
+      cancelAnimationFrame(roRaf.current)
+      roRaf.current = 0
+    }
     if (rootObs.current) {
       rootObs.current.disconnect()
       rootObs.current = null
     }
     if (node && typeof ResizeObserver !== 'undefined') {
       const ro = new ResizeObserver((entries) => {
-        const w = entries[0]?.contentRect?.width || 0
-        if (w) setPanelW(w)
+        const w = Math.round(entries[0]?.contentRect?.width || 0)
+        if (!w || w === lastPanelW.current) return
+        if (roRaf.current) cancelAnimationFrame(roRaf.current)
+        roRaf.current = requestAnimationFrame(() => {
+          roRaf.current = 0
+          lastPanelW.current = w
+          setPanelW(w)
+        })
       })
       ro.observe(node)
       rootObs.current = ro

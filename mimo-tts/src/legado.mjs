@@ -37,7 +37,11 @@ export function handleLegadoJson(req, res, url, config) {
       return res.end('需要令牌：请在地址末尾加上 ?token=…（完整地址见控制台「交付」页）')
     }
   }
-  const base = publicBase(req, config.server)
+  const configuredRelay = String(config.tunnel?.kvSync?.publicRelayUrl || '').trim().replace(/\/+$/, '')
+  const relayOriginHeader = String(req?.headers?.['x-relay-origin'] || '').trim().replace(/\/+$/, '')
+  const base = (!String(config.server?.publicUrl || '').trim() && configuredRelay && relayOriginHeader === configuredRelay)
+    ? configuredRelay
+    : publicBase(req, config.server)
   const tokenQuery = auth.enabled && auth.token ? `?token=${encodeURIComponent(auth.token)}` : ''
   const entry = buildLegadoEntry({
     baseUrl: base,

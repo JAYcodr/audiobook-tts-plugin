@@ -4,8 +4,8 @@
  * 零第三方 npm 依赖，支持 --mode wrangler 或 --mode api，以及本地状态去重。
  *
  * 用法示例：
- *   node deploy/cf-worker-relay/sync-tunnel-url.mjs \
- *     --from-api http://127.0.0.1:8291/mimo-tts/api/tunnel/status \
+ *   AUDIOBOOK_API_TOKEN=<URL_TOKEN> node deploy/cf-worker-relay/sync-tunnel-url.mjs \
+ *     --from-api http://127.0.0.1:8291/api/tunnel/status \
  *     --mode wrangler --namespace-id <KV_NAMESPACE_ID>
  */
 import { spawnSync } from 'node:child_process'

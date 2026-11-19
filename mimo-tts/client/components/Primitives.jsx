@@ -207,11 +207,11 @@ export function HeadRow({ k, v }) {
   )
 }
 
-export function Rowx({ k, v }) {
+export function Rowx({ k, v, title }) {
   return (
     <div className="rowx">
       <span>{k}</span>
-      <b>{v}</b>
+      <b title={title || undefined}>{v}</b>
     </div>
   )
 }

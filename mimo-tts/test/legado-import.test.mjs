@@ -149,3 +149,32 @@ test('隧道后面带正确令牌 → 200，且地址用公网域名', async () 
   assert.equal(res.status, 200)
   assert.ok(entryOf(res).url.startsWith('https://tts.example.com/listening'), entryOf(res).url.slice(0, 60))
 })
+
+test('经方案 D Worker 中转且携带匹配的 X-Relay-Origin 时返回固定 workers.dev 地址', async () => {
+  const svc = fakeService()
+  svc.store.config = {
+    ...config,
+    tunnel: { kvSync: { publicRelayUrl: 'https://my-relay.workers.dev/' } },
+  }
+  const req = {
+    socket: { remoteAddress: '127.0.0.1' },
+    headers: {
+      host: 'temp-123.trycloudflare.com',
+      'x-forwarded-host': 'temp-123.trycloudflare.com',
+      'x-forwarded-proto': 'https',
+      'x-relay-origin': 'https://my-relay.workers.dev',
+    },
+    method: 'GET',
+  }
+  const res = await run(svc, req, '/legado.json?token=tok-abc')
+  assert.equal(res.status, 200)
+  assert.ok(entryOf(res).url.startsWith('https://my-relay.workers.dev/listening?token=tok-abc,'))
+
+  // 未经 Worker 直连或伪造不匹配 X-Relay-Origin 时绝不采信伪造头
+  const spoof = await run(svc, {
+    ...req,
+    headers: { ...req.headers, 'x-relay-origin': 'https://evil.example.com' },
+  }, '/legado.json?token=tok-abc')
+  assert.equal(spoof.status, 200)
+  assert.ok(entryOf(spoof).url.startsWith('https://temp-123.trycloudflare.com/listening?token=tok-abc,'))
+})

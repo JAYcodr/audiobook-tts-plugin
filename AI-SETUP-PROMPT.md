@@ -121,7 +121,7 @@ curl -s http://127.0.0.1:<GUI端口>/mimo-tts/api/state | head -c 300
 - **分支 C（命名隧道）**：
   协助配置 `cloudflared tunnel` 指向 `http://127.0.0.1:<端口>` 与 DigitalPlat/自有域名，写入 `server.publicUrl`（提示可在 `legado.extraHeaders` 配 Cloudflare Access 令牌）。
 - **分支 D（CF Worker + KV 固定中转）**：
-  参考 `deploy/cf-worker-relay/README.md`，协助完成 `wrangler kv namespace create TUNNEL_KV`、`wrangler deploy`、写入 `tunnel.kvSync` 配置（`enabled: true`, `kvNamespaceId`, `publicRelayUrl`），启动 Quick Tunnel 并执行一次 `POST /mimo-tts/api/tunnel/sync-kv`，并设置 **5 分钟定时兜底同步**（`crontab` 或 DSH 定时任务执行 `deploy/cf-worker-relay/sync-tunnel-url.mjs --from-api ...`）。
+  参考 `deploy/cf-worker-relay/README.md`，协助完成 `wrangler kv namespace create TUNNEL_KV`、`wrangler deploy`、写入 `tunnel.kvSync` 配置（`enabled: true`, `kvNamespaceId`, `publicRelayUrl`），启动 Quick Tunnel 并执行一次 `POST /mimo-tts/api/tunnel/sync-kv`，并设置 **5 分钟定时兜底同步**（`crontab` 或 DSH 定时任务执行 `deploy/cf-worker-relay/sync-tunnel-url.mjs --from-api http://127.0.0.1:<端口>/api/tunnel/status` 配合 `AUDIOBOOK_API_TOKEN`，或 `--from-api http://127.0.0.1:<GUI端口>/mimo-tts/api/tunnel/status`）。
 
 ---
 

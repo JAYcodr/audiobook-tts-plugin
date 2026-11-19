@@ -63,8 +63,8 @@ npx wrangler deploy
 如希望即使本机或隧道意外重连也能自动兜底刷新 KV，可配置 5 分钟定时任务：
 
 ```bash
-# crontab -e
-*/5 * * * * node /绝对路径/audiobook-tts-plugin/deploy/cf-worker-relay/sync-tunnel-url.mjs --from-api http://127.0.0.1:8291/mimo-tts/api/tunnel/status --mode wrangler --namespace-id <KV_NAMESPACE_ID> >/tmp/ab-kv-sync.log 2>&1
+# crontab -e（直连 8291 端口走 /api/tunnel/status；若走 DSH GUI 端口则用 /mimo-tts/api/tunnel/status）
+*/5 * * * * AUDIOBOOK_API_TOKEN=<URL_TOKEN> node /绝对路径/audiobook-tts-plugin/deploy/cf-worker-relay/sync-tunnel-url.mjs --from-api http://127.0.0.1:8291/api/tunnel/status --mode wrangler --namespace-id <KV_NAMESPACE_ID> >/tmp/ab-kv-sync.log 2>&1
 ```
 
 若使用 `--mode api`（无需安装 `wrangler`，适合定时任务或容器），只需提前设置环境变量 `CF_API_TOKEN`、`CF_ACCOUNT_ID` 与 `CF_KV_NAMESPACE_ID`。

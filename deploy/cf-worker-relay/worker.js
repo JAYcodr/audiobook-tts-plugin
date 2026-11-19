@@ -93,6 +93,7 @@ export default {
     }
     headers.set('X-Forwarded-Host', reqUrl.host)
     headers.set('X-Forwarded-Proto', reqUrl.protocol.replace(':', ''))
+    headers.set('X-Relay-Origin', reqUrl.origin)
 
     const init = {
       method,
@@ -114,7 +115,13 @@ export default {
       })
     }
 
-    if (upstreamRes.status === 502 || upstreamRes.status === 530 || upstreamRes.status === 521 || upstreamRes.status === 522 || upstreamRes.status === 524) {
+    const upstreamCt = (upstreamRes.headers.get('content-type') || '').toLowerCase()
+    const isGatewayError = (upstreamRes.status === 502 && !upstreamCt.includes('application/json'))
+      || upstreamRes.status === 530
+      || upstreamRes.status === 521
+      || upstreamRes.status === 522
+      || upstreamRes.status === 524
+    if (isGatewayError) {
       return jsonResponse(503, {
         error: 'upstream_tunnel_error',
         upstreamStatus: upstreamRes.status,

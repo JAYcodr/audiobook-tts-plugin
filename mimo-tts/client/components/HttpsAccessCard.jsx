@@ -109,7 +109,10 @@ export function HttpsAccessCard({
     'cloudflared tunnel create audiobook-tts',
     'cloudflared tunnel route dns audiobook-tts tts.example.dpdns.org',
   ].join('\n')
-  const relaySyncCmd = `node deploy/cf-worker-relay/sync-tunnel-url.mjs --from-api http://127.0.0.1:${port}/mimo-tts/api/tunnel/status --mode wrangler`
+  const kvNsId = String(cfg.tunnel?.kvSync?.kvNamespaceId || '').trim()
+  const nsFlag = kvNsId ? ` --namespace-id ${kvNsId}` : ' --namespace-id <KV_NAMESPACE_ID>'
+  const tokenPrefix = cfg.auth?.enabled ? 'AUDIOBOOK_API_TOKEN=<URL_TOKEN> ' : ''
+  const relaySyncCmd = `${tokenPrefix}node deploy/cf-worker-relay/sync-tunnel-url.mjs --from-api http://127.0.0.1:${port}/api/tunnel/status --mode wrangler${nsFlag}`
 
   return (
     <div className="labelblock https-card" id="httpsAccessCard">

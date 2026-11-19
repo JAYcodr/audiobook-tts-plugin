@@ -59,6 +59,7 @@ test('worker.js 白名单放行听书与 OpenAI 路由并透传关键请求头',
     assert.equal(seen.length, 5)
     assert.equal(seen[1].url, 'https://valid-book-relay.trycloudflare.com/legado.json?token=tok-123')
     assert.equal(seen[1].headers['cf-connecting-ip'], '203.0.113.5')
+    assert.equal(seen[1].headers['x-relay-origin'], 'https://relay.example.workers.dev')
     assert.equal(seen[2].headers['x-audiobook-token'], 'tok-123')
     assert.equal(seen[4].headers.authorization, 'Bearer sk-test-relay-1234')
     assert.equal(seen[4].bodyText, '{"input":"hi"}')
@@ -117,6 +118,12 @@ test('worker.js 拦截非法 KV 上游（防 SSRF）并在上游超时/502/530 �
   globalThis.fetch = async () => {
     if (upstreamMode === 'throw') throw new Error('network timeout')
     if (upstreamMode === '502') return new Response('Bad Gateway', { status: 502 })
+    if (upstreamMode === '502-json') {
+      return new Response(JSON.stringify({ error: { message: 'synth boom', code: 'synthesis_failed' } }), {
+        status: 502,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      })
+    }
     if (upstreamMode === '530') return new Response('Tunnel Error 1033', { status: 530 })
     return new Response('ok', { status: 200 })
   }
@@ -148,6 +155,13 @@ test('worker.js 拦截非法 KV 上游（防 SSRF）并在上游超时/502/530 �
       const json = await res.json()
       assert.ok(json.error)
     }
+
+    // 应用层主动返回的 JSON 502（如合成错误）必须原样透传给客户端
+    upstreamMode = '502-json'
+    const app502 = await worker.fetch(new Request('https://relay.example.workers.dev/v1/audio/speech', { method: 'POST', body: '{}' }), goodEnv)
+    assert.equal(app502.status, 502)
+    const app502Json = await app502.json()
+    assert.equal(app502Json.error.code, 'synthesis_failed')
   } finally {
     globalThis.fetch = prevFetch
   }
