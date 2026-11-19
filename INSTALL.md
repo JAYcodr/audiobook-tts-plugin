@@ -41,17 +41,17 @@
 
 ```bash
 mkdir -p ~/dsh-plugins
-git clone https://github.com/JAYcodr/mimo-tts.git ~/dsh-plugins/mimo-tts
+git clone https://github.com/JAYcodr/audiobook-tts-plugin.git ~/dsh-plugins/audiobook-tts-plugin
 ```
 
-装进 DSH 的是仓库里的 `mimo-tts/` 子目录（仓库根和插件同名，所以路径是 `mimo-tts/mimo-tts`），
+装进 DSH 的是仓库里的 `mimo-tts/` 子目录（仓库根下就是它），
 **整包别拆、别删**——`setup/` 要按自己的位置去找 `refs/` 和 `mimo-tts/`，拆散了脚本就找不到了。
 
 **验证**：
 
 ```bash
-ls ~/dsh-plugins/mimo-tts/mimo-tts/package.json
-ls ~/dsh-plugins/mimo-tts/refs/
+ls ~/dsh-plugins/audiobook-tts-plugin/mimo-tts/package.json
+ls ~/dsh-plugins/audiobook-tts-plugin/refs/
 ```
 
 > 为什么强调「不能移动」：插件是按**绝对路径**以 `link:` 方式装进 DSH 的。
@@ -70,7 +70,7 @@ ls ~/dsh-plugins/mimo-tts/refs/
 
 在 DSH 里说：
 
-> 用 plugin_manager 的 install_bundle，target 填 `/Users/你/dsh-plugins/mimo-tts/mimo-tts` 的绝对路径。
+> 用 plugin_manager 的 install_bundle，target 填 `/Users/你/dsh-plugins/audiobook-tts-plugin/mimo-tts` 的绝对路径。
 
 它会要求授权——同意。安装器做的事是：把 `@local/mimo-tts` 以 `link:` 方式写进
 profile 的依赖，并把 `@local/mimo-tts` 加进 `dsh.profile.bundles`（包里有
@@ -84,7 +84,7 @@ profile 的依赖，并把 `@local/mimo-tts` 加进 `dsh.profile.bundles`（包�
 # profile 名一般是 desktop 或 web，先确认：
 ls ~/.dsh/profiles
 
-dsh plugin --profile desktop add link:$HOME/dsh-plugins/mimo-tts/mimo-tts
+dsh plugin --profile desktop add link:$HOME/dsh-plugins/audiobook-tts-plugin/mimo-tts
 ```
 
 然后**手工**把包加进 bundles。打开 `~/.dsh/profiles/desktop/package.json`，
@@ -112,7 +112,7 @@ dsh plugin --profile desktop add link:$HOME/dsh-plugins/mimo-tts/mimo-tts
 grep -n "mimo-tts" ~/.dsh/profiles/desktop/package.json
 ```
 
-应该能看到两处：`dependencies` 里的 `"@local/mimo-tts": "link:/.../mimo-tts/mimo-tts"`，
+应该能看到两处：`dependencies` 里的 `"@local/mimo-tts": "link:/.../audiobook-tts-plugin/mimo-tts"`，
 和 `bundles` 里的 `"@local/mimo-tts"`。
 
 ---
@@ -267,7 +267,7 @@ file /tmp/t.wav
 ### 7.1 一键准备
 
 ```bash
-cd /path/to/mimo-tts
+cd /path/to/audiobook-tts-plugin
 ./setup/install-local-engine.sh
 ```
 
@@ -398,7 +398,7 @@ caffeinate -s          # 前台挂着；或者去「节能」里关掉睡眠
 **B. 把内核单独跑起来**（不依赖 DSH；纯 Node，NAS 也能跑——但本地引擎只支持 Mac）
 
 ```bash
-node ~/dsh-plugins/mimo-tts/mimo-tts/bin/mimo-tts.mjs \
+node ~/dsh-plugins/audiobook-tts-plugin/mimo-tts/bin/mimo-tts.mjs \
   --port 8291 --data ~/mimo-tts-data
 ```
 
