@@ -31,6 +31,45 @@ from io import BytesIO
 import numpy as np
 
 PUNCT = re.compile(r"[\s，。！？、；：\"“”‘’…—（）()《》【】,.!?;:]")
+MIN_VOCODER_BYTES = 600_000_000
+MIN_MODEL_BYTES = 500_000_000
+
+
+def validate_model_dir(model_path):
+    """防止缺失 speech_tokenizer/model.safetensors 时 mlx-audio 静默使用随机权重输出噪声。"""
+    if not os.path.isdir(model_path):
+        return
+    cfg = os.path.join(model_path, "config.json")
+    if not os.path.isfile(cfg):
+        raise FileNotFoundError(f"模型目录缺少 config.json：{cfg}")
+    tok = os.path.join(model_path, "speech_tokenizer", "model.safetensors")
+    if not os.path.isfile(tok):
+        raise FileNotFoundError(f"缺少声码器权重（缺失会导致输出噪声）：{tok}")
+    tok_size = os.path.getsize(tok)
+    if tok_size < MIN_VOCODER_BYTES:
+        raise ValueError(
+            f"声码器权重不完整：{tok}（{tok_size // (1024 * 1024)} MB，需 >= {MIN_VOCODER_BYTES // 1_000_000} MB）"
+        )
+    main_weight = os.path.join(model_path, "model.safetensors")
+    index_file = os.path.join(model_path, "model.safetensors.index.json")
+    if os.path.isfile(main_weight):
+        main_size = os.path.getsize(main_weight)
+        if main_size < MIN_MODEL_BYTES:
+            raise ValueError(
+                f"主权重不完整：{main_weight}（{main_size // (1024 * 1024)} MB，需 >= {MIN_MODEL_BYTES // 1_000_000} MB）"
+            )
+    elif os.path.isfile(index_file):
+        with open(index_file, encoding="utf-8") as f:
+            weight_map = json.load(f).get("weight_map") or {}
+        shards = sorted(set(weight_map.values()))
+        if not shards:
+            raise ValueError(f"模型分片索引为空：{index_file}")
+        for shard in shards:
+            sp = os.path.join(model_path, shard)
+            if not os.path.isfile(sp) or os.path.getsize(sp) <= 0:
+                raise FileNotFoundError(f"缺少模型权重分片：{sp}")
+    else:
+        raise FileNotFoundError(f"模型目录缺少主权重：{main_weight}")
 
 
 def char_count(text):
@@ -79,6 +118,7 @@ class Engine:
         self.started = time.time()
         self.max_text = args.max_text
 
+        validate_model_dir(args.model)
         t0 = time.time()
         self.model = load_model(args.model)
         self.load_s = time.time() - t0

@@ -19,10 +19,36 @@ test('全角引号与角括号都算对话', () => {
   assert.equal(splitText('『别动。』').at(-1).role, 'dialogue')
 })
 
-test('ASCII 直引号被归一化，不会切出孤立单引号段', () => {
+test('ASCII 直引号按对归一化并正确闭合，不会把后续旁白误判为对话', () => {
   const segs = splitText('He said: "come here." then left.')
   assert.ok(segs.every((s) => s.text.length > 1), JSON.stringify(segs))
   assert.ok(!segs.some((s) => s.text === '"'))
+  assert.deepEqual(segs.map((s) => s.role), ['narrator', 'dialogue', 'narrator'])
+  assert.equal(segs[1].text, '“come here.”')
+  assert.equal(segs[2].text.trim(), 'then left.')
+})
+
+test('中文混排成对英文双引号 "你好" 能正确闭合', () => {
+  const segs = splitText('她说："你好"然后转身走了。')
+  assert.deepEqual(segs.map((s) => s.role), ['narrator', 'dialogue', 'narrator'])
+  assert.deepEqual(segs.map((s) => s.text), ['她说：', '“你好”', '然后转身走了。'])
+})
+
+test('英文缩写撇号与跨句对话切分正确', () => {
+  const segs = splitText('He said: "I don\'t know. Wait for O\'Brien!" And left.')
+  assert.deepEqual(segs.map((s) => s.role), ['narrator', 'dialogue', 'narrator'])
+  assert.ok(segs[1].text.includes('don’t'))
+  assert.ok(segs[1].text.includes('O’Brien'))
+
+  const multi = splitText('他说："第一句。第二句。"他走了。')
+  assert.deepEqual(multi.map((s) => s.role), ['narrator', 'dialogue', 'narrator'])
+  assert.equal(multi[1].text, '“第一句。第二句。”')
+})
+
+test('上一段未闭合引号不污染换行后的下一段旁白', () => {
+  const segs = splitText('她说："这句话忘了闭合。\n下一段是旁白。')
+  assert.deepEqual(segs.map((s) => s.role), ['narrator', 'dialogue', 'narrator'])
+  assert.equal(segs[2].text, '下一段是旁白。')
 })
 
 test('连续句号归一化成省略号，不逐字切开', () => {

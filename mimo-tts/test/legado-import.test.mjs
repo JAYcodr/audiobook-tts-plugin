@@ -4,7 +4,7 @@ import { TtsService } from '../src/service.mjs'
 
 const config = {
   server: { host: '0.0.0.0', port: 8292 },
-  auth: { enabled: true, user: 'hamelin', pass: '', token: 'tok-abc' },
+  auth: { enabled: true, user: 'admin', pass: '', token: 'tok-abc' },
   upstream: { baseUrl: 'https://api.xiaomimimo.com/v1', keys: [], model: 'mimo-v2.5-tts', timeoutMs: 1000, maxRetry: 0 },
   voices: { narrator: { voice: '冰糖', style: '旁白' }, dialogue: { voice: '苏打', style: '对话' } },
   synth: { maxSegmentChars: 100, concurrency: 4, stream: false },
@@ -125,7 +125,7 @@ test('隧道后面（带转发头、对端是内网）不带令牌 → 仍然 40
   // cloudflared 从 NAS 发起，对端是内网地址；但带着 CF 转发头 = 公网请求
   const req = {
     socket: { remoteAddress: '192.168.1.15' },
-    headers: { host: 'mimotts.hamelin.cn', 'cf-connecting-ip': '203.0.113.9' },
+    headers: { host: 'tts.example.com', 'cf-connecting-ip': '203.0.113.9' },
     method: 'GET',
   }
   const res = await run(svc, req, '/legado.json')
@@ -140,12 +140,12 @@ test('隧道后面带正确令牌 → 200，且地址用公网域名', async () 
     headers: {
       host: '192.168.1.54:8292',
       'cf-connecting-ip': '203.0.113.9',
-      'x-forwarded-host': 'mimotts.hamelin.cn',
+      'x-forwarded-host': 'tts.example.com',
       'x-forwarded-proto': 'https',
     },
     method: 'GET',
   }
   const res = await run(svc, req, '/legado.json?token=tok-abc')
   assert.equal(res.status, 200)
-  assert.ok(entryOf(res).url.startsWith('https://mimotts.hamelin.cn/listening'), entryOf(res).url.slice(0, 60))
+  assert.ok(entryOf(res).url.startsWith('https://tts.example.com/listening'), entryOf(res).url.slice(0, 60))
 })

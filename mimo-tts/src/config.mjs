@@ -18,7 +18,7 @@ export const DEFAULTS = {
   },
   auth: {
     enabled: true,
-    user: 'hamelin',
+    user: 'admin',
     pass: '',
     // URL token：Legado 的导入契约里没法塞 Basic 头，所以鉴权走一个可拼进 URL 的令牌。
     // 首次启动自动生成，用户不用理解它。
@@ -88,16 +88,101 @@ export const DEFAULTS = {
 
 export const PRESET_VOICES = ['mimo_default', '冰糖', '茉莉', '苏打', '白桦', 'Mia', 'Chloe', 'Milo', 'Dean']
 
-/** 深合并：数组整体替换（keys、等），对象逐键递归。 */
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
+/** 深合并：数组整体替换（keys、等），对象逐键递归，并过滤原型链污染键。 */
 export function merge(base, patch) {
   if (Array.isArray(patch) || patch === null || typeof patch !== 'object') return patch
   const out = Array.isArray(base) ? [...base] : { ...base }
   for (const [k, v] of Object.entries(patch)) {
+    if (UNSAFE_KEYS.has(k)) continue
     out[k] = k in out && out[k] && typeof out[k] === 'object' && !Array.isArray(out[k])
       ? merge(out[k], v)
       : merge(undefined, v)
   }
   return out
+}
+
+function clonePlain(value) {
+  if (Array.isArray(value)) return value.map((item) => clonePlain(item))
+  if (value && typeof value === 'object') {
+    const out = {}
+    for (const [k, v] of Object.entries(value)) {
+      if (UNSAFE_KEYS.has(k)) continue
+      out[k] = clonePlain(v)
+    }
+    return out
+  }
+  return value
+}
+
+export function isMaskedSecret(val) {
+  return typeof val === 'string' && /[\u2026\u2022\u00b7]/.test(val)
+}
+
+/**
+ * 清洗配置补丁里的脱敏占位符：
+ * - 如果传回的掩码 Key 能匹配到已保存的某条真实 Key，则还原为真实 Key（支持保留旧 Key 并追加新 Key）；
+ * - 如果出现无法匹配已保存密钥的掩码字符串，直接报错拒绝，绝不把掩码当真 Key 写入配置；
+ * - auth.pass 若为掩码占位符（••••••），保留原口令不覆盖。
+ */
+export function sanitizeConfigPatch(patch, currentConfig) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    return { cleanPatch: {}, problems: ['配置补丁必须是 JSON 对象'] }
+  }
+  const cleanPatch = clonePlain(patch)
+  const problems = []
+
+  if (cleanPatch.upstream && typeof cleanPatch.upstream === 'object' && 'keys' in cleanPatch.upstream) {
+    const rawKeys = cleanPatch.upstream.keys
+    if (!Array.isArray(rawKeys)) {
+      problems.push('upstream.keys 必须是数组')
+    } else {
+      const existing = Array.isArray(currentConfig?.upstream?.keys) ? currentConfig.upstream.keys : []
+      const used = new Set()
+      const resolved = []
+      for (const item of rawKeys) {
+        const k = String(item ?? '').trim()
+        if (!k) continue
+        if (!isMaskedSecret(k)) {
+          resolved.push(k)
+          continue
+        }
+        const matchIdx = existing.findIndex((realKey, idx) => !used.has(idx) && maskKey(realKey) === k)
+        if (matchIdx >= 0) {
+          used.add(matchIdx)
+          resolved.push(existing[matchIdx])
+        } else {
+          problems.push('upstream.keys 包含无效的掩码占位符，请填写完整 API Key')
+        }
+      }
+      cleanPatch.upstream.keys = resolved
+    }
+  }
+
+  if (cleanPatch.auth && typeof cleanPatch.auth === 'object' && typeof cleanPatch.auth.pass === 'string') {
+    if (isMaskedSecret(cleanPatch.auth.pass)) {
+      const existingPass = String(currentConfig?.auth?.pass || '')
+      if (existingPass && (cleanPatch.auth.pass === '••••••' || cleanPatch.auth.pass === '••••')) {
+        delete cleanPatch.auth.pass
+      } else {
+        problems.push('auth.pass 包含无效的掩码字符，请重新输入完整口令')
+      }
+    }
+  }
+
+  return { cleanPatch, problems }
+}
+
+/** 对补丁执行脱敏还原 + 深合并 + 校验（供 /api/validate 与 Store.update 共用）。 */
+export function validatePatch(currentConfig, patch) {
+  const { cleanPatch, problems: sanitizeProblems } = sanitizeConfigPatch(patch, currentConfig)
+  if (sanitizeProblems.length) {
+    return { problems: sanitizeProblems, merged: currentConfig, cleanPatch }
+  }
+  const merged = merge(merge({}, currentConfig), cleanPatch)
+  const problems = validate(merged)
+  return { problems, merged, cleanPatch }
 }
 
 const ENV_KEYS = {
@@ -235,12 +320,11 @@ export class Store {
     return this.config
   }
 
-  /** 补丁式更新：只改传入的键，其余保留。返回 {config, problems, secrets} */
+  /** 补丁式更新：只改传入的键，其余保留。返回 {config, problems} */
   update(patch) {
-    const next = merge(merge({}, this.config), patch)
-    const problems = validate(next)
+    const { problems, merged } = validatePatch(this.config, patch)
     if (problems.length) return { problems, config: this.config }
-    this.config = next
+    this.config = merged
     this.save()
     return { problems: [], config: this.config }
   }

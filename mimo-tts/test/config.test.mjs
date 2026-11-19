@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { Store, DEFAULTS } from '../src/config.mjs'
+import { Store, DEFAULTS, maskKey, validatePatch } from '../src/config.mjs'
 
 const fresh = () => mkdtempSync(join(tmpdir(), 'mimo-cfg-'))
 
@@ -208,6 +208,68 @@ test('混合启动的云顶段数/克隆并发非法时拒绝', () => {
     })
     assert.ok(r.problems.some((p) => p.includes('maxCloudBootstrap')))
     assert.ok(r.problems.some((p) => p.includes('cloudConcurrency')))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('默认配置不含个人用户名痕迹', () => {
+  assert.notEqual(DEFAULTS.auth.user, 'hamelin')
+  assert.equal(DEFAULTS.auth.user, 'admin')
+})
+
+test('保留旧掩码 Key 并追加新 Key 时，旧真值恢复且绝不写入掩码', () => {
+  const dir = fresh()
+  try {
+    const store = new Store(dir)
+    store.load({})
+    const oldKey = 'sk-old-secret-123456'
+    const newKey = 'sk-new-secret-654321'
+    store.update({ upstream: { keys: [oldKey] } })
+    const maskedOld = maskKey(oldKey)
+
+    const res = store.update({ upstream: { keys: [maskedOld, newKey] } })
+    assert.deepEqual(res.problems, [])
+    assert.deepEqual(store.config.upstream.keys, [oldKey, newKey])
+
+    const bad = store.update({ upstream: { keys: ['sk-fake…9999', newKey] } })
+    assert.ok(bad.problems.length > 0)
+    assert.deepEqual(store.config.upstream.keys, [oldKey, newKey])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('掩码口令不覆盖原口令，损坏掩码被拒绝', () => {
+  const dir = fresh()
+  try {
+    const store = new Store(dir)
+    store.load({})
+    store.update({ auth: { pass: 'real-password' } })
+
+    const ok = store.update({ auth: { pass: '••••••', user: 'reader' } })
+    assert.deepEqual(ok.problems, [])
+    assert.equal(store.config.auth.pass, 'real-password')
+    assert.equal(store.config.auth.user, 'reader')
+
+    const bad = store.update({ auth: { pass: '••bad' } })
+    assert.ok(bad.problems.length > 0)
+    assert.equal(store.config.auth.pass, 'real-password')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('validatePatch 使用深合并，局部嵌套补丁不会丢失同级默认字段', () => {
+  const dir = fresh()
+  try {
+    const store = new Store(dir)
+    store.load({})
+    const { problems, merged } = validatePatch(store.config, { server: { port: 8300 } })
+    assert.deepEqual(problems, [])
+    assert.equal(merged.server.host, '0.0.0.0')
+    assert.equal(merged.server.port, 8300)
+    assert.equal(merged.upstream.baseUrl, DEFAULTS.upstream.baseUrl)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

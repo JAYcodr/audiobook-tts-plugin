@@ -14,7 +14,7 @@
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
 import {
-  appendFileSync, existsSync, mkdirSync, renameSync, statSync, writeFileSync,
+  appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync,
 } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -22,6 +22,71 @@ import { randomUUID } from 'node:crypto'
 
 const DEFAULT_SCRIPT = fileURLToPath(new URL('../sidecar/server.py', import.meta.url))
 const MAX_LOG_BYTES = 2 * 1024 * 1024
+export const DEFAULT_MIN_VOCODER_BYTES = 600_000_000
+export const DEFAULT_MIN_MODEL_BYTES = 500_000_000
+
+/**
+ * 校验本地 MLX 模型目录完整性：
+ * 必须存在 config.json、主权重（model.safetensors 或分片索引）以及声码器权重
+ * `speech_tokenizer/model.safetensors`（>= 600MB，缺失会导致 mlx-audio 静默使用随机权重输出噪声）。
+ */
+export function validateModelDir(modelPath, {
+  minVocoderBytes = DEFAULT_MIN_VOCODER_BYTES,
+  minModelBytes = DEFAULT_MIN_MODEL_BYTES,
+} = {}) {
+  if (!modelPath) throw new LocalError('本地引擎缺少模型目录（upstream.local.modelPath）', 'not_configured')
+  if (!existsSync(modelPath)) throw new LocalError(`模型目录不存在：${modelPath}`, 'missing_model')
+  if (!statSync(modelPath).isDirectory()) throw new LocalError(`模型路径不是目录：${modelPath}`, 'missing_model')
+
+  const cfgFile = join(modelPath, 'config.json')
+  if (!existsSync(cfgFile)) {
+    throw new LocalError(`模型目录缺少 config.json：${cfgFile}`, 'incomplete_model')
+  }
+
+  const tokFile = join(modelPath, 'speech_tokenizer', 'model.safetensors')
+  if (!existsSync(tokFile)) {
+    throw new LocalError(
+      `缺少声码器权重：${tokFile}（缺失会导致 mlx-audio 输出噪声，请重新下载模型）`,
+      'missing_vocoder',
+    )
+  }
+  const tokSize = statSync(tokFile).size
+  if (tokSize < minVocoderBytes) {
+    throw new LocalError(
+      `声码器权重不完整：${tokFile}（当前 ${Math.round(tokSize / 1048576)} MB，需 ≥ ${Math.round(minVocoderBytes / 1000000)} MB）`,
+      'corrupt_vocoder',
+    )
+  }
+
+  const mainFile = join(modelPath, 'model.safetensors')
+  const indexFile = join(modelPath, 'model.safetensors.index.json')
+  if (existsSync(mainFile)) {
+    const mainSize = statSync(mainFile).size
+    if (mainSize < minModelBytes) {
+      throw new LocalError(
+        `主权重文件不完整：${mainFile}（当前 ${Math.round(mainSize / 1048576)} MB，需 ≥ ${Math.round(minModelBytes / 1000000)} MB）`,
+        'corrupt_model',
+      )
+    }
+  } else if (existsSync(indexFile)) {
+    let parsed
+    try {
+      parsed = JSON.parse(readFileSync(indexFile, 'utf8'))
+    } catch {
+      throw new LocalError(`模型分片索引损坏：${indexFile}`, 'corrupt_model')
+    }
+    const shards = [...new Set(Object.values(parsed?.weight_map || {}))]
+    if (!shards.length) throw new LocalError(`模型分片索引为空：${indexFile}`, 'corrupt_model')
+    for (const shard of shards) {
+      const sp = join(modelPath, String(shard))
+      if (!existsSync(sp) || statSync(sp).size <= 0) {
+        throw new LocalError(`缺少模型权重分片：${sp}`, 'missing_model_weights')
+      }
+    }
+  } else {
+    throw new LocalError(`模型目录缺少主权重：${mainFile}`, 'missing_model_weights')
+  }
+}
 
 export class LocalError extends Error {
   constructor(message, code = 'local_error') {
@@ -38,10 +103,12 @@ export class LocalEngine {
    * @param {string} deps.dataDir
    * @param {(line:string)=>void} [deps.log]
    */
-  constructor({ getConfig, dataDir, log }) {
+  constructor({ getConfig, dataDir, log, minVocoderBytes, minModelBytes }) {
     this.getConfig = getConfig
     this.dataDir = dataDir
     this.log = log || (() => {})
+    this.minVocoderBytes = minVocoderBytes ?? DEFAULT_MIN_VOCODER_BYTES
+    this.minModelBytes = minModelBytes ?? DEFAULT_MIN_MODEL_BYTES
     this.proc = null
     this.pid = null
     this.port = null
@@ -248,8 +315,10 @@ export class LocalEngine {
   #validate(cfg) {
     if (!cfg.pythonPath) throw new LocalError('本地引擎缺少 Python 路径（upstream.local.pythonPath）', 'not_configured')
     if (!existsSync(cfg.pythonPath)) throw new LocalError(`Python 不存在：${cfg.pythonPath}`, 'missing_python')
-    if (!cfg.modelPath) throw new LocalError('本地引擎缺少模型目录（upstream.local.modelPath）', 'not_configured')
-    if (!existsSync(cfg.modelPath)) throw new LocalError(`模型目录不存在：${cfg.modelPath}`, 'missing_model')
+    validateModelDir(cfg.modelPath, {
+      minVocoderBytes: this.minVocoderBytes,
+      minModelBytes: this.minModelBytes,
+    })
     const ref = cfg.refs?.narrator
     if (!ref?.wav || !ref?.text) throw new LocalError('本地引擎缺少旁白参考音（wav + text）', 'missing_ref')
     if (!existsSync(ref.wav)) throw new LocalError(`旁白参考音不存在：${ref.wav}`, 'missing_ref')

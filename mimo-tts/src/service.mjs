@@ -720,7 +720,7 @@ export class TtsService {
       // 手机上最容易的做法是把主机地址直接贴进来（不带令牌）。局域网内网来源允许
       // 这种「引导式」访问：服务本来就只在内网开，令牌在返回的 URL 里照旧带着。
       //
-      // ⚠️ 但走 Cloudflare Tunnel 时，TCP 对端永远是隧道宿主（192.168.1.15，内网地址），
+      // ⚠️ 但走 Cloudflare Tunnel 时，TCP 对端永远是隧道宿主（例如内网宿主机地址），
       // 只看对端会把公网请求也放进来。所以带了转发头（CF-Connecting-IP / X-Forwarded-For）
       // 就一律按公网处理，必须带令牌。
       if (!ok && (hasProxyHeaders(req) || !isPrivateAddress(req.socket?.remoteAddress))) {
@@ -753,15 +753,23 @@ export class TtsService {
     return sendJson(res, 200, [entry])
   }
 
-  /** 试听：不走缓存，只合成一段。 */
+  /** 试听：不走缓存，只合成一段。返回 { wav, source } */
   async preview({ text, role = 'narrator' }) {
     const voice = this.config.voices[role] || this.config.voices.narrator
-    if (this.provider === 'local') return this.local.synthesize({ text, role })
-    if (this.provider === 'hybrid') {
-      if (this.local.isWarm() || !this.cloudAvailable()) return this.local.synthesize({ text, role })
-      return this.cloudClone({ text, role })
+    if (this.provider === 'local') {
+      const wav = await this.local.synthesize({ text, role })
+      return { wav, source: 'local' }
     }
-    return this.mimo.synthesize({ text, voice: voice.voice, style: voice.style, mode: voice.mode })
+    if (this.provider === 'hybrid') {
+      if (this.local.isWarm() || !this.cloudAvailable()) {
+        const wav = await this.local.synthesize({ text, role })
+        return { wav, source: 'hybrid-local' }
+      }
+      const wav = await this.cloudClone({ text, role })
+      return { wav, source: 'hybrid-cloud' }
+    }
+    const wav = await this.mimo.synthesize({ text, voice: voice.voice, style: voice.style, mode: voice.mode })
+    return { wav, source: 'mimo' }
   }
 
   async handlePreview(req, res, url) {
@@ -779,11 +787,12 @@ export class TtsService {
     if (!text.trim()) return sendJson(res, 400, { error: 'text 不能为空' })
     const started = Date.now()
     try {
-      const wav = await this.preview({ text: text.slice(0, 300), role })
+      const { wav, source } = await this.preview({ text: text.slice(0, 300), role })
       const { durationSec } = parseWav(wav)
       res.writeHead(200, {
         'Content-Type': 'audio/wav',
         'Content-Length': wav.length,
+        'Cache-Control': 'no-store',
         'X-Mimo-Latency-Ms': String(Date.now() - started),
         'X-Mimo-Duration-S': durationSec.toFixed(2),
         'X-Mimo-Source': source,
@@ -799,13 +808,6 @@ export class TtsService {
     let patch
     try { patch = JSON.parse(body.toString('utf8') || '{}') } catch {
       return sendJson(res, 400, { error: 'JSON 解析失败' })
-    }
-    // 前端回传的掩码值不能覆盖真值
-    if (patch.upstream?.keys && patch.upstream.keys.every((k) => String(k).includes('…'))) {
-      delete patch.upstream.keys
-    }
-    if (patch.auth && typeof patch.auth.pass === 'string' && patch.auth.pass.includes('••')) {
-      delete patch.auth.pass
     }
     const result = await this.applyPatch(patch)
     if (result.problems?.length) {

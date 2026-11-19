@@ -12,8 +12,9 @@
 import { networkInterfaces, homedir } from 'node:os'
 import { join } from 'node:path'
 import { mkdirSync } from 'node:fs'
-import { Store, redact, validate } from './src/config.mjs'
+import { Store, redact, validatePatch } from './src/config.mjs'
 import { TtsService } from './src/service.mjs'
+import { parseWav } from './src/wav.mjs'
 
 export const name = 'mimo-tts'
 export const ROUTE_PREFIX = '/mimo-tts'
@@ -43,7 +44,7 @@ export function apply(ctx) {
 
   // 卸载时把监听关掉。cordis 的 effect 是标准 API，但插件不该因为一个可选钩子
   // 缺失就整块不加载，所以留一条 dispose 事件兜底。
-  const stopOnDispose = () => () => { service.stop().catch(() => {}) }
+  const stopOnDispose = () => () => service.stop().catch(() => {})
   if (typeof ctx.effect === 'function') ctx.effect(stopOnDispose, 'mimo-tts: service lifetime')
   else if (typeof ctx.on === 'function') ctx.on('dispose', stopOnDispose())
 
@@ -110,9 +111,6 @@ export function apply(ctx) {
       if (path === '/api/config' && (req.method === 'GET' || req.method === 'PUT')) {
         if (req.method === 'GET') return json(res, 200, redact(store.config))
         const patch = await readJson(req)
-        // 前端回传的掩码不能覆盖真值
-        if (patch.upstream?.keys?.every?.((k) => String(k).includes('…'))) delete patch.upstream.keys
-        if (typeof patch.auth?.pass === 'string' && patch.auth.pass.includes('•')) delete patch.auth.pass
         const result = await service.applyPatch(patch)
         if (result.problems?.length) return json(res, 422, { error: result.problems.join('；'), problems: result.problems })
         return json(res, 200, state(req))
@@ -124,12 +122,15 @@ export function apply(ctx) {
         if (!text) return json(res, 400, { error: 'text 不能为空' })
         const role = body.role === 'dialogue' ? 'dialogue' : 'narrator'
         const started = Date.now()
-        const wav = await service.preview({ text: text.slice(0, 300), role })
+        const { wav, source } = await service.preview({ text: text.slice(0, 300), role })
+        const { durationSec } = parseWav(wav)
         res.writeHead(200, {
           'Content-Type': 'audio/wav',
           'Content-Length': wav.length,
           'Cache-Control': 'no-store',
           'X-Mimo-Latency-Ms': String(Date.now() - started),
+          'X-Mimo-Duration-S': durationSec.toFixed(2),
+          'X-Mimo-Source': source,
         })
         return res.end(wav)
       }
@@ -152,7 +153,8 @@ export function apply(ctx) {
 
       if (path === '/api/validate' && req.method === 'POST') {
         const patch = await readJson(req)
-        return json(res, 200, { problems: validate({ ...store.config, ...patch }) })
+        const { problems } = validatePatch(store.config, patch)
+        return json(res, 200, { problems })
       }
 
       return json(res, 404, { error: 'not found' })

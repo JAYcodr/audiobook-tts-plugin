@@ -6,7 +6,7 @@
   },
   "auth": {
     "enabled": true,
-    "user": "hamelin",
+    "user": "admin",
     "pass": "",
     "token": ""
   },
