@@ -39,7 +39,7 @@ grep -nE "audiobook-tts-plugin|mimo-tts" ~/.dsh/profiles/desktop/package.json
 
 **原因 A：只装了依赖，没进 bundles**
 
-只看到 `dependencies` 里那一行 `link:`，`dsh.profile.bundles` 里没有包名。
+`dependencies` 里有包名（npm 安装是 `^0.5.x`，本地安装是 `link:`），但 `dsh.profile.bundles` 里没有 `"audiobook-tts-plugin"`。
 → 手工在 `bundles` 数组里加 `"audiobook-tts-plugin"`，完全重启。
 
 **原因 B：没完全重启**
@@ -49,7 +49,7 @@ macOS 上 `Cmd+Q` 不够，托盘图标要退。只刷新页面不会加载宿�
 
 **原因 C：目录被移动/改名**
 
-插件是 `link:` 进去的，目录一动就断。→ 移回来后 `dsh plugin add link:` 重装一遍。
+只有 `link:` 安装会这样：目录一动就断。→ 移回来后 `dsh plugin add link:` 重装；npm 安装不受目录位置影响。
 
 **原因 D：版本不匹配**
 

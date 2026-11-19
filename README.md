@@ -2,7 +2,7 @@
 
 给「阅读」(Legado) 以及支持 OpenAI TTS 接口的阅读软件（如 Readest）用的多引擎在线听书服务 + DSH 值守控制台。装进 DSH 后，侧栏会出现「听书值守」（时间线 / 渲染设置 / 工程史 / 交付四个工作面）；手机 Legado 只需粘贴导入地址或扫码即可听整本书：旁白与对话按引号自动分音色，默认返回长度真实的完整 WAV，阅读进度条与自动翻页精准同步。
 
-> 包名：`audiobook-tts-plugin` 0.5.1（兼容旧包身份/数据目录 `mimo-tts`） · MIT License
+> 包名：`audiobook-tts-plugin` 0.5.2（兼容旧包身份/数据目录 `mimo-tts`） · MIT License
 > 已验证环境：macOS（Apple Silicon）· DSH ≥ 0.2.x · Node ≥ 20
 > 仓库**不含任何密钥**，也**不含模型权重**。
 
@@ -42,8 +42,9 @@ audiobook-tts-plugin/
 ├── HTTPS-GUIDE.md            ← 公网 HTTPS 四选一指南（Quick Tunnel / Tailscale / 命名隧道 / Worker+KV）
 ├── TROUBLESHOOTING.md        ← 按症状排查手册
 ├── SUPPORT.md                ← 卡住了：自查顺序、材料收集、脱敏清单与可复制的 issue 模板
-├── AI-SETUP-PROMPT.md        ← 发给 DSH AI 的一键安装提示词（v0.5.0）
+├── AI-SETUP-PROMPT.md        ← 发给 DSH AI 的一键安装提示词（v0.5.2）
 ├── CHANGELOG.md              ← 版本变更记录
+├── docs/RELEASE.md           ← 维护者发布与更新 runbook（npm publish / DSH upgrade）
 ├── LICENSE                   ← MIT 许可证
 ├── deploy/
 │   └── cf-worker-relay/      ← 方案 D：Cloudflare Worker + KV 固定域名中转与同步脚本
@@ -124,7 +125,7 @@ node mimo-tts/bin/audiobook-tts.mjs --port 8291 --data ./data
 `config.json` 有 40 多条校验规则、密钥字段还带掩码还原，而且改完文件不会自动生效。需要改配置时（尤其是让 AI 代劳），走 CLI，不要手写 JSON：
 
 ```bash
-# 已装进 PATH / npm link 时
+# 已装进 PATH（如全局安装）或 npm link 时
 audiobook-tts config get upstream.provider --json
 audiobook-tts config set upstream.provider hybrid
 audiobook-tts config list --group upstream

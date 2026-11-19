@@ -56,7 +56,7 @@ ls ~/dsh-plugins/audiobook-tts-plugin/mimo-tts/package.json
 ls ~/dsh-plugins/audiobook-tts-plugin/refs/
 ```
 
-> 为什么强调「不能移动」：插件是按**绝对路径**以 `link:` 方式装进 DSH 的。
+> 为什么强调「不能移动」：用**本地 `link:` 方式**安装时，插件是按绝对路径装进 DSH 的。
 > 你把目录改名或挪走，DSH 下次启动就找不到它了。真要挪，挪完重装一遍。
 
 ---
