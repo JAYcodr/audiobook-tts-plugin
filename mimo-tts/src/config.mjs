@@ -7,6 +7,7 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { randomBytes } from 'node:crypto'
+import { validateTextRules } from './lexicon.mjs'
 
 export const DEFAULTS = {
   server: {
@@ -73,6 +74,10 @@ export const DEFAULTS = {
   },
   voiceProfiles: {
     active: 'builtin:story-warm',
+    items: [],
+  },
+  textRules: {
+    enabled: true,
     items: [],
   },
   synth: {
@@ -338,6 +343,7 @@ export function validate(cfg, ctx = {}) {
   if (cfg.voiceProfiles?.items !== undefined && !Array.isArray(cfg.voiceProfiles.items)) {
     problems.push('voiceProfiles.items 必须是数组')
   }
+  problems.push(...validateTextRules(cfg.textRules))
   if (provider === 'openai') {
     const oa = cfg.upstream?.openai || {}
     if (!/^https?:\/\//.test(String(oa.baseUrl || ''))) {

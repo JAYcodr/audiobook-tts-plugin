@@ -57,6 +57,10 @@
     "active": "builtin:story-warm",
     "items": []
   },
+  "textRules": {
+    "enabled": true,
+    "items": []
+  },
   "synth": {
     "maxSegmentChars": 100,
     "maxTextChars": 10000,

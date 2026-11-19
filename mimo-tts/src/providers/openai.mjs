@@ -12,8 +12,8 @@ export class OpenAiTtsProvider extends TTSProvider {
     super({ ...deps, id: 'openai', label: 'OpenAI 兼容' })
   }
 
-  cfg() {
-    return this.getConfig().upstream?.openai || {}
+  cfg(ctx = null) {
+    return (ctx?.config || this.getConfig()).upstream?.openai || {}
   }
 
   isAvailable() {
@@ -21,33 +21,33 @@ export class OpenAiTtsProvider extends TTSProvider {
     return Boolean(/^https?:\/\//.test(String(c.baseUrl || '')) && String(c.model || '').trim())
   }
 
-  voiceFor(role) {
-    const c = this.cfg()
+  voiceFor(role, ctx = null) {
+    const c = this.cfg(ctx)
     if (role === 'dialogue') return String(c.dialogueVoice || c.narratorVoice || 'echo')
     return String(c.narratorVoice || 'alloy')
   }
 
-  modelKey() {
-    const c = this.cfg()
+  modelKey(ctx = null) {
+    const c = this.cfg(ctx)
     const base = String(c.baseUrl || '').replace(/\/+$/, '')
     const fmt = c.responseFormat || 'wav'
     const speed = Number(c.speed ?? 1)
     return `openai:${base}:${c.model || 'tts-1'}:${fmt}:${speed}:${c.instructions || ''}`
   }
 
-  cacheDescriptor(req) {
+  cacheDescriptor(req, ctx = null) {
     return {
       text: req.text,
       role: req.role,
-      voice: this.voiceFor(req.role),
-      style: String(this.cfg().instructions || ''),
+      voice: this.voiceFor(req.role, ctx),
+      style: String(this.cfg(ctx).instructions || ''),
       mode: 'openai',
-      model: this.modelKey(),
+      model: this.modelKey(ctx),
     }
   }
 
-  async synthesizeSegment(req) {
-    const c = this.cfg()
+  async synthesizeSegment(req, ctx = null) {
+    const c = this.cfg(ctx)
     const base = String(c.baseUrl || '').replace(/\/+$/, '')
     if (!/^https?:\/\//.test(base)) {
       throw new ProviderError('OpenAI 兼容引擎缺少合法的 baseUrl', { code: 'not_configured', provider: 'openai' })
@@ -57,7 +57,7 @@ export class OpenAiTtsProvider extends TTSProvider {
     const body = {
       model: String(c.model || 'tts-1'),
       input: req.text,
-      voice: this.voiceFor(req.role),
+      voice: this.voiceFor(req.role, ctx),
       response_format: format,
       speed,
     }

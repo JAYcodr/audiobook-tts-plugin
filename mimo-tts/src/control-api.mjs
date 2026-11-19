@@ -6,6 +6,7 @@ import { authorized } from './auth.mjs'
 import { BUILTIN_VOICE_PROFILES, PRESET_VOICES, redact, validatePatch } from './config.mjs'
 import { HttpInputError, readJson, sendJson } from './http.mjs'
 import { buildImportInfo } from './legado.mjs'
+import { BUILTIN_RULE_PRESETS, previewTextPipeline, validateTextRules } from './lexicon.mjs'
 import { RefError } from './refs-store.mjs'
 import { parseWav } from './wav.mjs'
 
@@ -24,6 +25,7 @@ export function buildStatePayload(service, req) {
     import: buildImportInfo(req, cfg),
     presetVoices: PRESET_VOICES,
     builtinVoiceProfiles: BUILTIN_VOICE_PROFILES,
+    builtinRulePresets: BUILTIN_RULE_PRESETS,
     refs: service.refs.list(),
     providers: service.registry.list().map((p) => p.status()),
     dataDir: service.store.dataDir,
@@ -134,11 +136,22 @@ export function createControlHandler({ service, requireAuth = false }) {
         return true
       }
       let text = url.searchParams.get('text') || ''
-      let role = url.searchParams.get('role') === 'dialogue' ? 'dialogue' : 'narrator'
+      const qRole = url.searchParams.get('role')
+      let role = qRole === 'dialogue' ? 'dialogue' : (qRole === 'mixed' ? 'mixed' : 'narrator')
+      let draft = null
+      let applyTextRules = true
       if (req.method === 'POST') {
-        const body = await readJson(req, 200_000).catch(() => ({}))
+        let body
+        try {
+          body = await readJson(req, 400_000)
+        } catch (err) {
+          sendJson(res, err instanceof HttpInputError ? err.status : 400, { error: err.message })
+          return true
+        }
         if (body.text) text = String(body.text)
-        if (body.role === 'dialogue') role = 'dialogue'
+        if (body.role === 'dialogue' || body.role === 'mixed' || body.role === 'narrator') role = body.role
+        if (body.draft && typeof body.draft === 'object') draft = body.draft
+        if (body.applyTextRules === false) applyTextRules = false
       }
       text = text.trim()
       if (!text) {
@@ -147,7 +160,12 @@ export function createControlHandler({ service, requireAuth = false }) {
       }
       const started = Date.now()
       try {
-        const { wav, source } = await service.preview({ text: text.slice(0, 300), role })
+        const { wav, source } = await service.preview({
+          text: text.slice(0, 600),
+          role,
+          draft,
+          applyTextRules,
+        })
         const { durationSec } = parseWav(wav)
         res.writeHead(200, {
           'Content-Type': 'audio/wav',
@@ -159,8 +177,49 @@ export function createControlHandler({ service, requireAuth = false }) {
         })
         res.end(wav)
       } catch (err) {
-        sendJson(res, 502, { error: String(err?.message || err) })
+        const status = err instanceof HttpInputError ? err.status : 502
+        sendJson(res, status, { error: String(err?.message || err) })
       }
+      return true
+    }
+
+    if (path === '/api/text/preview') {
+      if (req.method !== 'POST') {
+        sendJson(res, 405, { error: 'method not allowed' })
+        return true
+      }
+      let body
+      try {
+        body = await readJson(req, 300_000)
+      } catch (err) {
+        sendJson(res, err instanceof HttpInputError ? err.status : 400, { error: err.message })
+        return true
+      }
+      let textRules = service.config.textRules
+      let maxSegmentChars = service.config.synth?.maxSegmentChars || 100
+      if (body.draft && typeof body.draft === 'object') {
+        const checked = validatePatch(service.config, body.draft, { refsStore: service.refs })
+        if (checked.problems.length) {
+          sendJson(res, 422, { error: checked.problems.join('；'), problems: checked.problems })
+          return true
+        }
+        textRules = checked.merged.textRules
+        maxSegmentChars = checked.merged.synth?.maxSegmentChars || maxSegmentChars
+      } else if (body.textRules !== undefined) {
+        const problems = validateTextRules(body.textRules)
+        if (problems.length) {
+          sendJson(res, 422, { error: problems.join('；'), problems })
+          return true
+        }
+        textRules = body.textRules
+      }
+      const explicitMax = Number(body.maxSegmentChars)
+      if (Number.isInteger(explicitMax) && explicitMax >= 10 && explicitMax <= 300) {
+        maxSegmentChars = explicitMax
+      }
+      const rawText = String(body.text ?? '').slice(0, 20_000)
+      const result = previewTextPipeline(rawText, { textRules, maxSegmentChars })
+      sendJson(res, 200, result)
       return true
     }
 

@@ -9,9 +9,11 @@ import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { authorized, clientKeyOf } from './auth.mjs'
 import { AudioCache } from './cache.mjs'
+import { validatePatch } from './config.mjs'
 import { createControlHandler } from './control-api.mjs'
 import { HttpInputError, readBody, sendJson } from './http.mjs'
 import { handleLegadoJson } from './legado.mjs'
+import { applyGlobalRules, applySegmentRules } from './lexicon.mjs'
 import { Metrics, RpmGate } from './metrics.mjs'
 import { ProviderError, ProviderRegistry } from './providers/base.mjs'
 import { HybridProvider } from './providers/hybrid.mjs'
@@ -20,6 +22,7 @@ import { MimoProvider } from './providers/mimo.mjs'
 import { OpenAiTtsProvider } from './providers/openai.mjs'
 import { RefsStore } from './refs-store.mjs'
 import { splitText, toRequests } from './split.mjs'
+import { concatWavs } from './wav.mjs'
 
 export const VERSION = '0.3.0'
 
@@ -261,8 +264,8 @@ export class TtsService {
 
     const clientKey = clientKeyOf(req)
     const started = Date.now()
-    const segments = splitText(text, { maxSegmentChars: this.config.synth.maxSegmentChars })
-    if (!segments.length) return sendJson(res, 400, { error: '切分后没有内容' })
+    const segments = this.prepareSegments(text, this.config)
+    if (!segments.length) return sendJson(res, 400, { error: '切分或规则替换后没有内容' })
 
     this.metrics.touch(clientKey, { text: text.slice(0, 60), chars: text.length, bookId })
 
@@ -312,6 +315,14 @@ export class TtsService {
     }
   }
 
+  /** 文本处理全链路：全局正则/字面替换 -> 对话/旁白切分 -> 角色定向规则 */
+  prepareSegments(text, cfg = this.config) {
+    const afterGlobal = applyGlobalRules(text, cfg.textRules)
+    if (!afterGlobal.trim()) return []
+    const raw = splitText(afterGlobal, { maxSegmentChars: cfg.synth?.maxSegmentChars })
+    return applySegmentRules(raw, cfg.textRules)
+  }
+
   /**
    * 把 Legado 的 speakSpeed（5–50，默认 5）映射成风格提示。
    * 用自然语言而不是给音频加速：重采样会让声音变调，听感比原速更差。
@@ -328,8 +339,50 @@ export class TtsService {
     return this.activeProvider().synthesizeBatch(requests, ctx)
   }
 
-  async preview({ text, role = 'narrator' }) {
-    return this.activeProvider().preview({ text, role, voices: this.config.voices })
+  async preview({ text, role = 'narrator', draft = null, applyTextRules = true } = {}) {
+    let effCfg = this.config
+    let ctx = {}
+    if (draft && typeof draft === 'object' && !Array.isArray(draft)) {
+      const checked = validatePatch(this.config, draft, { refsStore: this.refs })
+      if (checked.problems.length) {
+        throw new HttpInputError(checked.problems.join('；'), 422)
+      }
+      effCfg = checked.merged
+      ctx = { config: effCfg }
+    }
+
+    const providerId = effCfg.upstream?.provider || 'mimo'
+    const provider = this.registry.get(providerId)
+    if (!provider) {
+      throw new ProviderError(`未知的 TTS 引擎：${providerId}`, { code: 'unknown_provider' })
+    }
+
+    const cleanRole = role === 'dialogue' ? 'dialogue' : (role === 'mixed' ? 'mixed' : 'narrator')
+    if (cleanRole === 'mixed') {
+      const segments = applyTextRules !== false
+        ? this.prepareSegments(text, effCfg)
+        : splitText(text, { maxSegmentChars: effCfg.synth?.maxSegmentChars })
+      if (!segments.length) throw new HttpInputError('规则替换或切分后没有可试听内容', 400)
+      const requests = toRequests(segments, effCfg.voices)
+      const wavs = []
+      let lastSource = provider.id
+      for (const req of requests) {
+        const out = await provider.preview({ text: req.text, role: req.role, voices: effCfg.voices }, ctx)
+        wavs.push(out.wav)
+        if (out.source) lastSource = out.source
+      }
+      const { wav } = concatWavs(wavs)
+      return { wav, source: lastSource }
+    }
+
+    let cleanText = String(text ?? '').trim()
+    if (applyTextRules !== false) {
+      const afterGlobal = applyGlobalRules(cleanText, effCfg.textRules)
+      const segs = applySegmentRules([{ role: cleanRole, text: afterGlobal }], effCfg.textRules)
+      cleanText = segs.map((s) => s.text).join('').trim()
+      if (!cleanText) throw new HttpInputError('规则替换后没有可试听内容', 400)
+    }
+    return provider.preview({ text: cleanText, role: cleanRole, voices: effCfg.voices }, ctx)
   }
 
   /**
