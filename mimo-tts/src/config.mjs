@@ -61,15 +61,19 @@ export const DEFAULTS = {
       startupTimeoutMs: 180000,
       requestTimeoutMs: 180000,
       refs: {
-        narrator: { wav: '', text: '' },
-        dialogue: { wav: '', text: '' },
+        narrator: { refId: '', wav: '', text: '' },
+        dialogue: { refId: '', wav: '', text: '' },
       },
     },
   },
   voices: {
     // mode: preset | design | clone
-    narrator: { mode: 'preset', voice: '冰糖', style: '温润端庄的中文女声，有从容气度，适合旁白' },
-    dialogue: { mode: 'preset', voice: '苏打', style: '沉稳自然的中文男声，语速适中' },
+    narrator: { mode: 'preset', voice: '冰糖', style: '温润端庄的中文女声，有从容气度，适合旁白', refId: '' },
+    dialogue: { mode: 'preset', voice: '苏打', style: '沉稳自然的中文男声，语速适中', refId: '' },
+  },
+  voiceProfiles: {
+    active: 'builtin:story-warm',
+    items: [],
   },
   synth: {
     // 每段最多多少字。越小 → 段更多、并发更快出首音；越大 → 请求更省。
@@ -100,6 +104,44 @@ export const DEFAULTS = {
 }
 
 export const PRESET_VOICES = ['mimo_default', '冰糖', '茉莉', '苏打', '白桦', 'Mia', 'Chloe', 'Milo', 'Dean']
+
+export const BUILTIN_VOICE_PROFILES = [
+  {
+    id: 'builtin:story-warm',
+    name: '经典说书（温润女旁白 + 沉稳男对话）',
+    builtin: true,
+    voices: {
+      narrator: { mode: 'preset', voice: '冰糖', style: '温润端庄的中文女声，有从容气度，适合旁白', refId: '' },
+      dialogue: { mode: 'preset', voice: '苏打', style: '沉稳自然的中文男声，语速适中', refId: '' },
+    },
+    localRefs: {
+      narrator: { refId: 'builtin:narrator-14s', wav: '', text: '' },
+      dialogue: { refId: 'builtin:narrator-14s', wav: '', text: '' },
+    },
+  },
+  {
+    id: 'builtin:vivid-design',
+    name: 'MiMo 文字造音（说书女声 + 青年男声）',
+    builtin: true,
+    voices: {
+      narrator: { mode: 'design', voice: 'mimo_default', style: '声音清润温柔的年轻说书女声，吐字清晰，从容舒缓', refId: '' },
+      dialogue: { mode: 'design', voice: 'mimo_default', style: '声线清朗稳重的青年中文男声，对话自然富有情绪张力', refId: '' },
+    },
+  },
+  {
+    id: 'builtin:clone-narrator',
+    name: '参考音克隆统一声线（14s 旁白样本）',
+    builtin: true,
+    voices: {
+      narrator: { mode: 'clone', voice: '', style: '', refId: 'builtin:narrator-14s' },
+      dialogue: { mode: 'preset', voice: '苏打', style: '沉稳自然的中文男声，语速适中', refId: '' },
+    },
+    localRefs: {
+      narrator: { refId: 'builtin:narrator-14s', wav: '', text: '' },
+      dialogue: { refId: '', wav: '', text: '' },
+    },
+  },
+]
 
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 
@@ -200,13 +242,13 @@ export function sanitizeConfigPatch(patch, currentConfig) {
 }
 
 /** 对补丁执行脱敏还原 + 深合并 + 校验（供 /api/validate 与 Store.update 共用）。 */
-export function validatePatch(currentConfig, patch) {
+export function validatePatch(currentConfig, patch, ctx = {}) {
   const { cleanPatch, problems: sanitizeProblems } = sanitizeConfigPatch(patch, currentConfig)
   if (sanitizeProblems.length) {
     return { problems: sanitizeProblems, merged: currentConfig, cleanPatch }
   }
   const merged = merge(merge({}, currentConfig), cleanPatch)
-  const problems = validate(merged)
+  const problems = validate(merged, ctx)
   return { problems, merged, cleanPatch }
 }
 
@@ -259,7 +301,7 @@ export function applyEnv(cfg, env = process.env) {
   return cfg
 }
 
-export function validate(cfg) {
+export function validate(cfg, ctx = {}) {
   const problems = []
   const port = Number(cfg.server?.port)
   if (!Number.isInteger(port) || port < 1 || port > 65535) problems.push('server.port 必须是 1–65535')
@@ -277,6 +319,24 @@ export function validate(cfg) {
   const provider = cfg.upstream?.provider
   if (!['mimo', 'local', 'hybrid', 'openai'].includes(provider)) {
     problems.push('upstream.provider 必须是 mimo / local / hybrid / openai')
+  }
+  for (const roleKey of ['narrator', 'dialogue']) {
+    const v = cfg.voices?.[roleKey] || {}
+    const mode = v.mode || 'preset'
+    if (!['preset', 'design', 'clone'].includes(mode)) {
+      problems.push(`voices.${roleKey}.mode 必须是 preset / design / clone`)
+    }
+    if (provider === 'mimo') {
+      if (mode === 'design' && !String(v.style || '').trim()) {
+        problems.push(`MiMo 文字造音（${roleKey}）：style 音色描述不能为空`)
+      }
+      if (mode === 'clone' && !v.refId && !String(v.voice || '').trim()) {
+        problems.push(`MiMo 声音克隆（${roleKey}）：请选择参考音或填写音频路径`)
+      }
+    }
+  }
+  if (cfg.voiceProfiles?.items !== undefined && !Array.isArray(cfg.voiceProfiles.items)) {
+    problems.push('voiceProfiles.items 必须是数组')
   }
   if (provider === 'openai') {
     const oa = cfg.upstream?.openai || {}
@@ -302,8 +362,19 @@ export function validate(cfg) {
     if (!local.pythonPath) problems.push('本地引擎：upstream.local.pythonPath 不能为空')
     if (!local.modelPath) problems.push('本地引擎：upstream.local.modelPath 不能为空')
     const ref = local.refs?.narrator
-    if (!ref?.wav) problems.push('本地引擎：旁白参考音（refs.narrator.wav）不能为空')
-    if (!ref?.text) problems.push('本地引擎：旁白参考文本（refs.narrator.text）不能为空')
+    if (ref?.refId) {
+      if (ctx.refsStore) {
+        const resolved = ctx.refsStore.resolveRef(ref)
+        if (!resolved.wav || !resolved.exists) {
+          problems.push(`本地引擎：找不到旁白参考音（${ref.refId}）`)
+        } else if (!resolved.text) {
+          problems.push('本地引擎：旁白参考文本不能为空')
+        }
+      }
+    } else {
+      if (!ref?.wav) problems.push('本地引擎：旁白参考音（refs.narrator.wav）不能为空')
+      if (!ref?.text) problems.push('本地引擎：旁白参考文本（refs.narrator.text）不能为空')
+    }
     const lp = Number(local.port)
     if (!Number.isInteger(lp) || lp < 1 || lp > 65535) problems.push('本地引擎端口必须是 1–65535')
     const idle = Number(local.idleUnloadSeconds)
@@ -325,7 +396,7 @@ export function validate(cfg) {
 
 export class Store {
   /**
-   * @param {string} dataDir 插件数据目录（插件由宿主传入，独立运行时用 MIMO_TTS_DATA 或 ./data）
+   * @param {string} dataDir 插件数据目录（插件由宿主传入，独立运行时用 AUDIOBOOK_TTS_DATA / MIMO_TTS_DATA 或 ./data）
    */
   constructor(dataDir) {
     this.dataDir = dataDir
@@ -333,6 +404,7 @@ export class Store {
     this.backupFile = `${this.file}.bak`
     this.config = null
     this.log = null
+    this.refsStore = null
   }
 
   load(env = process.env) {
@@ -375,7 +447,7 @@ export class Store {
 
   /** 补丁式更新：只改传入的键，其余保留。返回 {config, problems} */
   update(patch) {
-    const { problems, merged } = validatePatch(this.config, patch)
+    const { problems, merged } = validatePatch(this.config, patch, { refsStore: this.refsStore })
     if (problems.length) return { problems, config: this.config }
     this.config = merged
     this.save()

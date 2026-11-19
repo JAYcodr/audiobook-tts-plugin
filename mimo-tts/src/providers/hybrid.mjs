@@ -3,9 +3,9 @@
  * 冷启动前几段由 MiMo 克隆顶住，同时后台把本地模型焐热；
  * 只有当播放队列剩余缓冲足以覆盖下一段本地推理耗时，才切到本地且不回退云端。
  */
-import { createHash } from 'node:crypto'
 import { TTSProvider, runLimited } from './base.mjs'
 import { cacheKey } from '../cache.mjs'
+import { computeRefsDigest } from '../refs-store.mjs'
 import { concatWavs, normalizeWav } from '../wav.mjs'
 
 const PAUSE_GAP_MS = 20_000
@@ -70,6 +70,7 @@ export class HybridProvider extends TTSProvider {
     super({ ...deps, id: 'hybrid', label: '混合启动 (云 + 本地)' })
     this.mimo = deps.mimoProvider
     this.local = deps.localProvider
+    this.refsStore = deps.refsStore || null
     this.sessions = new SessionTracker()
     this.bootstrapCount = 0
     this.lastSource = ''
@@ -77,14 +78,14 @@ export class HybridProvider extends TTSProvider {
     this.bootstrapWarned = false
   }
 
-  cloudAvailable() {
-    return this.mimo.isAvailable()
+  cloudAvailable(cfgOverride = null) {
+    const up = cfgOverride?.upstream || this.getConfig().upstream || {}
+    return Boolean(up.keys?.length && up.baseUrl)
   }
 
   modelKey() {
     const localCfg = this.getConfig().upstream?.local || {}
-    const refTag = createHash('sha1').update(JSON.stringify(localCfg.refs || {})).digest('hex').slice(0, 8)
-    return `hybrid:${localCfg.modelPath || ''}:${refTag}`
+    return `hybrid:${localCfg.modelPath || ''}:${computeRefsDigest(localCfg.refs, this.refsStore)}`
   }
 
   estimateLocalSec(chars) {
@@ -122,12 +123,12 @@ export class HybridProvider extends TTSProvider {
     })
   }
 
-  async preview({ text, role = 'narrator' }) {
-    if (this.local.engine.isWarm() || !this.cloudAvailable()) {
+  async preview({ text, role = 'narrator' }, ctx = {}) {
+    if (this.local.engine.isWarm() || !this.cloudAvailable(ctx?.config)) {
       const wav = await this.local.engine.synthesize({ text, role })
       return { wav, source: 'hybrid-local' }
     }
-    const wav = await this.mimo.cloudClone({ text, role })
+    const wav = await this.mimo.cloudClone({ text, role }, ctx)
     return { wav, source: 'hybrid-cloud' }
   }
 

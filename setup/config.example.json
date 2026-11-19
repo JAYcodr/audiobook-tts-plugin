@@ -44,14 +44,18 @@
       "startupTimeoutMs": 180000,
       "requestTimeoutMs": 180000,
       "refs": {
-        "narrator": { "wav": "", "text": "" },
-        "dialogue": { "wav": "", "text": "" }
+        "narrator": { "refId": "builtin:narrator-14s", "wav": "", "text": "" },
+        "dialogue": { "refId": "", "wav": "", "text": "" }
       }
     }
   },
   "voices": {
-    "narrator": { "mode": "preset", "voice": "冰糖", "style": "温润端庄的中文女声，有从容气度，适合旁白" },
-    "dialogue": { "mode": "preset", "voice": "苏打", "style": "沉稳自然的中文男声，语速适中" }
+    "narrator": { "mode": "preset", "voice": "冰糖", "style": "温润端庄的中文女声，有从容气度，适合旁白", "refId": "" },
+    "dialogue": { "mode": "preset", "voice": "苏打", "style": "沉稳自然的中文男声，语速适中", "refId": "" }
+  },
+  "voiceProfiles": {
+    "active": "builtin:story-warm",
+    "items": []
   },
   "synth": {
     "maxSegmentChars": 100,

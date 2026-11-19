@@ -222,6 +222,13 @@ function splitLong(s, maxLen, out) {
 export function toRequests(segments, voices) {
   return segments.map((seg) => {
     const v = voices[seg.role] || voices.narrator
-    return { text: seg.text, role: seg.role, voice: v.voice, style: v.style, mode: v.mode || 'preset' }
+    return {
+      text: seg.text,
+      role: seg.role,
+      voice: v.voice,
+      style: v.style,
+      mode: v.mode || 'preset',
+      refId: v.refId || '',
+    }
   })
 }

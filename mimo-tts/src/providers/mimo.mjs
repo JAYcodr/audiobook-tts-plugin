@@ -9,12 +9,13 @@
  * 只有 mimo-v2.5-tts 的低延迟流式可用；另外两个即使 stream:true 也是
  * 「推理完再一次吐出来」，所以流式路径只对预置音色开放。
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { extname } from 'node:path'
 import { createHash } from 'node:crypto'
 import { ProviderError, TTSProvider } from './base.mjs'
 import { cacheKey } from '../cache.mjs'
 import { expandHomePath } from '../paths.mjs'
+import { computeRefsDigest } from '../refs-store.mjs'
 import { parseWav, silentWav, streamingWavHeader } from '../wav.mjs'
 
 const MAX_STREAM_BYTES = 64 * 1024 * 1024
@@ -106,8 +107,7 @@ export class MimoClient {
     return c.upstream
   }
 
-  buildPayload({ text, voice, style, mode = 'preset' }, format) {
-    const up = this.cfg()
+  buildPayload({ text, voice, style, mode = 'preset' }, format, up = this.cfg()) {
     const model = mode === 'design' ? 'mimo-v2.5-tts-voicedesign'
       : mode === 'clone' ? 'mimo-v2.5-tts-voiceclone'
         : up.model
@@ -125,22 +125,27 @@ export class MimoClient {
     return body
   }
 
-  /** 非流式：一次拿到完整 WAV */
-  async synthesize(req) {
-    const up = this.cfg()
-    const payload = this.buildPayload(req, 'wav')
+  /** 非流式：一次拿到完整 WAV；支持传入临时 upstream（用于草稿态试听，不污染全局密钥池） */
+  async synthesize(req, upOverride = null) {
+    const up = upOverride || this.cfg()
+    let pool = this.pool
+    if (upOverride) {
+      pool = new KeyPool()
+      pool.set(upOverride.keys)
+    }
+    const payload = this.buildPayload(req, 'wav', up)
     let lastErr
-    for (let attempt = 0; attempt <= up.maxRetry; attempt++) {
-      const key = this.pool.acquire()
+    for (let attempt = 0; attempt <= (up.maxRetry ?? 0); attempt++) {
+      const key = pool.acquire()
       try {
         const res = await fetch(`${up.baseUrl}/chat/completions`, {
           method: 'POST',
           headers: { 'api-key': key, 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(up.timeoutMs),
+          signal: AbortSignal.timeout(up.timeoutMs || 60_000),
         })
         if (!res.ok) {
-          this.pool.report(key, res.status)
+          pool.report(key, res.status)
           const text = await res.text().catch(() => '')
           const err = new UpstreamError(`上游 ${res.status}: ${text.slice(0, 200)}`, {
             status: res.status,
@@ -162,7 +167,7 @@ export class MimoClient {
       } catch (err) {
         if (err instanceof UpstreamError && !err.retryable) throw err
         lastErr = err
-        if (attempt >= up.maxRetry) break
+        if (attempt >= (up.maxRetry ?? 0)) break
         await sleep(500 * 2 ** attempt)
       }
     }
@@ -220,6 +225,7 @@ export class MimoClient {
 export class MimoProvider extends TTSProvider {
   constructor(deps) {
     super({ ...deps, id: 'mimo', label: 'MiMo 云端' })
+    this.refsStore = deps.refsStore || null
     this.client = new MimoClient(deps.getConfig)
   }
 
@@ -234,10 +240,108 @@ export class MimoProvider extends TTSProvider {
 
   supportsStreaming(requests) {
     return Array.isArray(requests) && requests.length > 1
+      && requests.every((r) => (r.mode || 'preset') === 'preset')
   }
 
-  async synthesizeSegment(req) {
-    return this.client.synthesize({ ...req, model: this.modelKey() })
+  #fileFingerprint(tag, wavPath) {
+    try {
+      const st = statSync(wavPath)
+      return `${tag}:${Math.trunc(st.mtimeMs)}:${st.size}`
+    } catch {
+      return String(tag || '')
+    }
+  }
+
+  #cloneDescriptorVoice(req) {
+    if (req.refId) {
+      const resolved = this.refsStore?.resolveRef({ refId: req.refId })
+      if (resolved?.wav) return this.#fileFingerprint(resolved.id || resolved.wav, resolved.wav)
+      return `ref:${req.refId}`
+    }
+    const raw = String(req.voice || '')
+    if (!raw) return ''
+    if (raw.startsWith('data:')) {
+      return `data:${createHash('sha1').update(raw).digest('hex').slice(0, 12)}`
+    }
+    const resolved = this.refsStore ? this.refsStore.resolveRef(raw) : { id: '', wav: expandHomePath(raw) }
+    const wavPath = resolved.wav || expandHomePath(raw)
+    return this.#fileFingerprint(resolved.id || wavPath, wavPath)
+  }
+
+  resolveCloneSource(req) {
+    if (req.refId) {
+      if (!this.refsStore) throw new UpstreamError(`找不到克隆参考音：${req.refId}`, { status: 400 })
+      const resolved = this.refsStore.resolveRef({ refId: req.refId })
+      if (!resolved?.wav || !resolved.exists) {
+        throw new UpstreamError(`找不到克隆参考音：${req.refId}`, { status: 400 })
+      }
+      return {
+        voice: this.client.sampleDataUrl(resolved.wav),
+        style: '',
+        fingerprint: this.#fileFingerprint(resolved.id || resolved.wav, resolved.wav),
+      }
+    }
+    const raw = String(req.voice || '')
+    if (!raw) throw new UpstreamError('声音克隆模式缺少参考音频（refId 或音频路径）', { status: 400 })
+    if (raw.startsWith('data:')) {
+      return {
+        voice: raw,
+        style: '',
+        fingerprint: `data:${createHash('sha1').update(raw).digest('hex').slice(0, 12)}`,
+      }
+    }
+    const resolved = this.refsStore ? this.refsStore.resolveRef(raw) : { id: '', wav: expandHomePath(raw) }
+    const wavPath = resolved.wav || expandHomePath(raw)
+    return {
+      voice: this.client.sampleDataUrl(wavPath),
+      style: '',
+      fingerprint: this.#fileFingerprint(resolved.id || wavPath, wavPath),
+    }
+  }
+
+  cacheDescriptor(req, ctx = {}) {
+    const mode = req.mode || 'preset'
+    const up = ctx?.config?.upstream || this.getConfig().upstream || {}
+    const model = up.model || 'mimo-v2.5-tts'
+    if (mode === 'clone') {
+      return {
+        text: req.text,
+        role: req.role,
+        mode: 'clone',
+        voice: this.#cloneDescriptorVoice(req),
+        style: '',
+        model,
+      }
+    }
+    return {
+      text: req.text,
+      role: req.role,
+      mode,
+      voice: mode === 'design' ? '' : (req.voice || ''),
+      style: req.style || '',
+      model,
+    }
+  }
+
+  async synthesizeSegment(req, ctx = {}) {
+    const up = ctx?.config?.upstream
+    const mode = req.mode || 'preset'
+    if (mode === 'clone') {
+      const resolved = this.resolveCloneSource(req)
+      return this.client.synthesize({
+        text: req.text,
+        role: req.role,
+        mode: 'clone',
+        voice: resolved.voice,
+        style: '',
+        model: up?.model || this.modelKey(),
+      }, up)
+    }
+    return this.client.synthesize({
+      ...req,
+      mode,
+      model: up?.model || this.modelKey(),
+    }, up)
   }
 
   async synthesizeBatch(requests, ctx = {}) {
@@ -251,29 +355,32 @@ export class MimoProvider extends TTSProvider {
   }
 
   /** 用本地配置里的参考音走 MiMo clone（供混合启动与纯克隆调用）。 */
-  cloudClone(req) {
-    const local = this.getConfig().upstream?.local || {}
-    const ref = local.refs?.[req.role] || local.refs?.narrator
-    if (!ref?.wav) throw new UpstreamError('混合启动缺少旁白参考音')
-    const voice = this.client.sampleDataUrl(ref.wav)
-    return this.client.synthesize({ text: req.text, voice, style: '', mode: 'clone' })
+  cloudClone(req, ctx = {}) {
+    const cfg = ctx?.config || this.getConfig()
+    const local = cfg.upstream?.local || {}
+    const rawRef = local.refs?.[req.role] || local.refs?.narrator
+    const resolved = this.refsStore
+      ? this.refsStore.resolveRef(rawRef)
+      : { wav: expandHomePath(rawRef?.wav) }
+    if (!resolved?.wav) throw new UpstreamError('混合启动缺少旁白参考音')
+    const voice = this.client.sampleDataUrl(resolved.wav)
+    return this.client.synthesize({ text: req.text, voice, style: '', mode: 'clone' }, cfg.upstream)
   }
 
   cloneModelTag() {
     const local = this.getConfig().upstream?.local || {}
-    return createHash('sha1').update(JSON.stringify(local.refs || {})).digest('hex').slice(0, 8)
+    return computeRefsDigest(local.refs, this.refsStore)
   }
 
   /** 流式响应：先发长度未知的头，再按顺序把已完成的段拼上去。 */
   async respondStreaming(res, requests, meta, metrics) {
-    const model = this.modelKey()
     const pending = requests.map(async (req) => {
-      const key = cacheKey({ ...req, model })
+      const key = cacheKey(this.cacheDescriptor(req))
       const cached = this.cache.get(key)
       if (cached) return cached
       await this.gate.acquire()
       try {
-        const wav = await this.client.synthesize({ ...req, model })
+        const wav = await this.synthesizeSegment(req)
         this.cache.set(key, wav)
         return wav
       } catch {

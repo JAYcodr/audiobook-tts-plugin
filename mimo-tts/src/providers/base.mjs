@@ -48,7 +48,7 @@ export class TTSProvider {
   }
 
   /** 允许子类补充影响音色/语速的缓存键字段 */
-  cacheDescriptor(req) {
+  cacheDescriptor(req, _ctx) {
     return { ...req, model: this.modelKey() }
   }
 
@@ -62,9 +62,9 @@ export class TTSProvider {
    * 子类可通过 concurrency / onSegmentError 定制行为，或完全覆写（如 HybridProvider）。
    */
   async synthesizeBatch(requests, ctx = {}) {
-    const cfg = this.getConfig()
+    const cfg = ctx?.config || this.getConfig()
     const concurrency = Math.max(1, Math.min(8, Number(ctx.concurrency ?? cfg.synth?.concurrency) || 4))
-    const keys = requests.map((req) => cacheKey(this.cacheDescriptor(req)))
+    const keys = requests.map((req) => cacheKey(this.cacheDescriptor(req, ctx)))
     const results = new Array(requests.length)
     let hits = 0
 
@@ -100,15 +100,16 @@ export class TTSProvider {
   onCacheHit() {}
 
   /** 试听（不走缓存） */
-  async preview({ text, role = 'narrator', voices }) {
-    const v = voices?.[role] || voices?.narrator || { voice: '', style: '', mode: 'preset' }
+  async preview({ text, role = 'narrator', voices }, ctx = {}) {
+    const v = voices?.[role] || voices?.narrator || { voice: '', style: '', mode: 'preset', refId: '' }
     const wav = await this.synthesizeSegment({
       text,
       role,
       voice: v.voice,
       style: v.style,
       mode: v.mode || 'preset',
-    }, { preview: true })
+      refId: v.refId || '',
+    }, { ...ctx, preview: true })
     return { wav, source: this.id }
   }
 

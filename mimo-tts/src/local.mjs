@@ -105,9 +105,10 @@ export class LocalEngine {
    * @param {string} deps.dataDir
    * @param {(line:string)=>void} [deps.log]
    */
-  constructor({ getConfig, dataDir, log, minVocoderBytes, minModelBytes }) {
+  constructor({ getConfig, dataDir, refsStore = null, log, minVocoderBytes, minModelBytes }) {
     this.getConfig = getConfig
     this.dataDir = dataDir
+    this.refsStore = refsStore || null
     this.log = log || (() => {})
     this.minVocoderBytes = minVocoderBytes ?? DEFAULT_MIN_VOCODER_BYTES
     this.minModelBytes = minModelBytes ?? DEFAULT_MIN_MODEL_BYTES
@@ -316,6 +317,20 @@ export class LocalEngine {
     return ready
   }
 
+  #resolveRoleRef(rawRef) {
+    if (this.refsStore) return this.refsStore.resolveRef(rawRef)
+    const wav = expandHomePath(rawRef?.wav)
+    const text = String(rawRef?.text || '').trim()
+    return {
+      id: '',
+      name: '',
+      wav,
+      text,
+      builtin: false,
+      exists: Boolean(wav && existsSync(wav)),
+    }
+  }
+
   #validate(cfg) {
     const pythonPath = expandHomePath(cfg.pythonPath)
     if (!pythonPath) throw new LocalError('本地引擎缺少 Python 路径（upstream.local.pythonPath）', 'not_configured')
@@ -324,18 +339,16 @@ export class LocalEngine {
       minVocoderBytes: this.minVocoderBytes,
       minModelBytes: this.minModelBytes,
     })
-    const ref = cfg.refs?.narrator
-    const refWav = expandHomePath(ref?.wav)
-    if (!refWav || !ref?.text) throw new LocalError('本地引擎缺少旁白参考音（wav + text）', 'missing_ref')
-    if (!existsSync(refWav)) throw new LocalError(`旁白参考音不存在：${refWav}`, 'missing_ref')
+    const resolved = this.#resolveRoleRef(cfg.refs?.narrator)
+    if (!resolved.wav || !resolved.text) throw new LocalError('本地引擎缺少旁白参考音（wav + text）', 'missing_ref')
+    if (!resolved.exists) throw new LocalError(`旁白参考音不存在：${resolved.wav}`, 'missing_ref')
   }
 
   #writeRefs(path, cfg) {
     const refs = {}
     for (const role of ['narrator', 'dialogue']) {
-      const r = cfg.refs?.[role]
-      const wav = expandHomePath(r?.wav)
-      if (wav && r?.text) refs[role] = { wav, text: r.text }
+      const resolved = this.#resolveRoleRef(cfg.refs?.[role])
+      if (resolved.wav && resolved.text) refs[role] = { wav: resolved.wav, text: resolved.text }
     }
     const tmp = `${path}.tmp`
     writeFileSync(tmp, JSON.stringify(refs, null, 2))

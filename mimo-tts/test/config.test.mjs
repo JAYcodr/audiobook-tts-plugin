@@ -90,7 +90,7 @@ test('默认上游是 MiMo 云，本地引擎字段齐全但不启用', () => {
     assert.equal(cfg.upstream.provider, 'mimo')
     assert.equal(cfg.upstream.local.port, 8398)
     assert.equal(cfg.upstream.local.idleUnloadSeconds, 300)
-    assert.deepEqual(cfg.upstream.local.refs.narrator, { wav: '', text: '' })
+    assert.deepEqual(cfg.upstream.local.refs.narrator, { refId: '', wav: '', text: '' })
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

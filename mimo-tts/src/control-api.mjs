@@ -3,9 +3,10 @@
  * 由独立 HTTP 服务（service.mjs）和 DSH 插件宿主（index.js）共同挂载，保证行为完全一致。
  */
 import { authorized } from './auth.mjs'
-import { PRESET_VOICES, redact, validatePatch } from './config.mjs'
+import { BUILTIN_VOICE_PROFILES, PRESET_VOICES, redact, validatePatch } from './config.mjs'
 import { HttpInputError, readJson, sendJson } from './http.mjs'
 import { buildImportInfo } from './legado.mjs'
+import { RefError } from './refs-store.mjs'
 import { parseWav } from './wav.mjs'
 
 export function buildStatePayload(service, req) {
@@ -22,6 +23,8 @@ export function buildStatePayload(service, req) {
     },
     import: buildImportInfo(req, cfg),
     presetVoices: PRESET_VOICES,
+    builtinVoiceProfiles: BUILTIN_VOICE_PROFILES,
+    refs: service.refs.list(),
     providers: service.registry.list().map((p) => p.status()),
     dataDir: service.store.dataDir,
   }
@@ -120,7 +123,7 @@ export function createControlHandler({ service, requireAuth = false }) {
         sendJson(res, err instanceof HttpInputError ? err.status : 400, { error: err.message })
         return true
       }
-      const { problems } = validatePatch(service.config, patch)
+      const { problems } = validatePatch(service.config, patch, { refsStore: service.refs })
       sendJson(res, 200, { problems })
       return true
     }
@@ -192,6 +195,107 @@ export function createControlHandler({ service, requireAuth = false }) {
       return true
     }
 
+    const handledRef = await handleRefRoutes(service, req, res, path)
+    if (handledRef) return true
+
     return false
   }
+}
+
+function sendRefError(res, err) {
+  const status = err instanceof RefError
+    ? err.status
+    : (err instanceof HttpInputError ? err.status : 400)
+  sendJson(res, status, { error: String(err?.message || err), code: err?.code || 'ref_error' })
+}
+
+async function invalidateIfRefUsed(service, refId) {
+  service.mimo?.clearSamples()
+  const localRefs = service.config?.upstream?.local?.refs || {}
+  if (localRefs.narrator?.refId === refId || localRefs.dialogue?.refId === refId) {
+    await service.local?.invalidate().catch(() => {})
+  }
+}
+
+async function handleRefRoutes(service, req, res, path) {
+  if (path === '/api/refs') {
+    if (req.method === 'GET') {
+      sendJson(res, 200, { refs: service.refs.list() })
+      return true
+    }
+    if (req.method === 'POST') {
+      try {
+        const body = await readJson(req, 15_000_000)
+        const item = service.refs.add(body)
+        service.mimo?.clearSamples()
+        sendJson(res, 201, { item, refs: service.refs.list() })
+      } catch (err) {
+        sendRefError(res, err)
+      }
+      return true
+    }
+    sendJson(res, 405, { error: 'method not allowed' })
+    return true
+  }
+
+  const audioMatch = /^\/api\/refs\/([^/]+)\/audio$/.exec(path)
+  if (audioMatch) {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' })
+      return true
+    }
+    try {
+      const id = decodeURIComponent(audioMatch[1])
+      const { buffer, mime } = service.refs.readAudio(id)
+      res.writeHead(200, {
+        'Content-Type': mime,
+        'Content-Length': buffer.length,
+        'Cache-Control': 'no-store',
+        'Content-Disposition': 'inline',
+      })
+      res.end(buffer)
+    } catch (err) {
+      sendRefError(res, err)
+    }
+    return true
+  }
+
+  const itemMatch = /^\/api\/refs\/([^/]+)$/.exec(path)
+  if (itemMatch) {
+    const id = decodeURIComponent(itemMatch[1])
+    if (req.method === 'GET') {
+      const item = service.refs.get(id)
+      if (!item) {
+        sendRefError(res, new RefError(`未找到参考音：${id}`, 404, 'not_found'))
+      } else {
+        sendJson(res, 200, { item })
+      }
+      return true
+    }
+    if (req.method === 'PUT') {
+      try {
+        const body = await readJson(req, 100_000)
+        const item = service.refs.update(id, body)
+        await invalidateIfRefUsed(service, id)
+        sendJson(res, 200, { item, refs: service.refs.list() })
+      } catch (err) {
+        sendRefError(res, err)
+      }
+      return true
+    }
+    if (req.method === 'DELETE') {
+      try {
+        const result = service.refs.remove(id)
+        await invalidateIfRefUsed(service, id)
+        sendJson(res, 200, { ...result, refs: service.refs.list() })
+      } catch (err) {
+        sendRefError(res, err)
+      }
+      return true
+    }
+    sendJson(res, 405, { error: 'method not allowed' })
+    return true
+  }
+
+  return false
 }

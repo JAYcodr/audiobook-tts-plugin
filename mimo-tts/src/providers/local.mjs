@@ -1,24 +1,25 @@
 /**
  * 本地 Qwen3-TTS (MLX sidecar) Provider。
  */
-import { createHash } from 'node:crypto'
 import { TTSProvider } from './base.mjs'
 import { LocalEngine } from '../local.mjs'
+import { computeRefsDigest } from '../refs-store.mjs'
 
 export class LocalProvider extends TTSProvider {
   constructor(deps) {
     super({ ...deps, id: 'local', label: '本地 Qwen3-TTS' })
+    this.refsStore = deps.refsStore || null
     this.engine = new LocalEngine({
       getConfig: deps.getConfig,
       dataDir: deps.dataDir,
+      refsStore: this.refsStore,
       log: this.log,
     })
   }
 
   modelKey() {
     const localCfg = this.getConfig().upstream?.local || {}
-    const refTag = createHash('sha1').update(JSON.stringify(localCfg.refs || {})).digest('hex').slice(0, 8)
-    return `local:${localCfg.modelPath || ''}:${refTag}`
+    return `local:${localCfg.modelPath || ''}:${computeRefsDigest(localCfg.refs, this.refsStore)}`
   }
 
   onCacheHit() {

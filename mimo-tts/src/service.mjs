@@ -18,6 +18,7 @@ import { HybridProvider } from './providers/hybrid.mjs'
 import { LocalProvider } from './providers/local.mjs'
 import { MimoProvider } from './providers/mimo.mjs'
 import { OpenAiTtsProvider } from './providers/openai.mjs'
+import { RefsStore } from './refs-store.mjs'
 import { splitText, toRequests } from './split.mjs'
 
 export const VERSION = '0.3.0'
@@ -40,10 +41,13 @@ export class TtsService {
     this.metrics.load()
     this.cache = new AudioCache(() => this.store.config.cache)
     this.gate = new RpmGate(() => this.store.config.limits.rpm)
+    this.refs = new RefsStore({ dataDir: store.dataDir || '', log: this.log }).load()
+    if (store && typeof store === 'object') store.refsStore = this.refs
 
     this.registry = new ProviderRegistry()
     this.mimoProvider = this.registry.register(new MimoProvider({
       getConfig: () => this.store.config,
+      refsStore: this.refs,
       cache: this.cache,
       gate: this.gate,
       log: this.log,
@@ -51,6 +55,7 @@ export class TtsService {
     this.localProvider = this.registry.register(new LocalProvider({
       getConfig: () => this.store.config,
       dataDir: this.store.dataDir,
+      refsStore: this.refs,
       cache: this.cache,
       gate: this.gate,
       log: this.log,
@@ -63,6 +68,7 @@ export class TtsService {
     }))
     this.hybridProvider = this.registry.register(new HybridProvider({
       getConfig: () => this.store.config,
+      refsStore: this.refs,
       cache: this.cache,
       gate: this.gate,
       log: this.log,
