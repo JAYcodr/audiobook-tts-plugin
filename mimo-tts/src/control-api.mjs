@@ -2,6 +2,7 @@
  * 共享控制台 HTTP API 路由处理器（/api/*）：
  * 由独立 HTTP 服务（service.mjs）和 DSH 插件宿主（index.js）共同挂载，保证行为完全一致。
  */
+import { randomBytes } from 'node:crypto'
 import { authorized } from './auth.mjs'
 import { BUILTIN_VOICE_PROFILES, PRESET_VOICES, redact, validatePatch } from './config.mjs'
 import { HttpInputError, readJson, sendJson } from './http.mjs'
@@ -9,10 +10,12 @@ import { buildImportInfo } from './legado.mjs'
 import { BUILTIN_RULE_PRESETS, previewTextPipeline, validateTextRules } from './lexicon.mjs'
 import { RefError } from './refs-store.mjs'
 import { SetupError, runDoctor } from './setup-manager.mjs'
+import { TunnelError, detectHttpsTools } from './tunnel-manager.mjs'
 import { parseWav } from './wav.mjs'
 
 export function buildStatePayload(service, req) {
   const cfg = service.config
+  const tunnelStatus = service.tunnel ? service.tunnel.status() : { state: 'idle', quickUrl: '', logs: [], kvSync: {} }
   return {
     service: service.info(),
     config: redact(cfg),
@@ -23,7 +26,8 @@ export function buildStatePayload(service, req) {
       local: service.local.status(),
       ...service.metrics.snapshot(),
     },
-    import: buildImportInfo(req, cfg),
+    import: buildImportInfo(req, cfg, { tunnelStatus }),
+    tunnel: tunnelStatus,
     presetVoices: PRESET_VOICES,
     builtinVoiceProfiles: BUILTIN_VOICE_PROFILES,
     builtinRulePresets: BUILTIN_RULE_PRESETS,
@@ -260,9 +264,92 @@ export function createControlHandler({ service, requireAuth = false }) {
     if (path === '/api/env/detect' || path === '/api/doctor' || path.startsWith('/api/setup/')) {
       return handleSetupRoutes(service, req, res, path, url)
     }
+    if (path.startsWith('/api/tunnel/') || path === '/api/openai-server/gen-key') {
+      return handleTunnelAndOpenAiRoutes(service, req, res, path, url)
+    }
 
     return false
   }
+}
+
+async function handleTunnelAndOpenAiRoutes(service, req, res, path, url) {
+  if (path === '/api/tunnel/status') {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' })
+      return true
+    }
+    const tunnelStatus = service.tunnel ? service.tunnel.status() : { state: 'idle', quickUrl: '', logs: [], kvSync: {} }
+    const payload = {
+      tunnel: tunnelStatus,
+      import: buildImportInfo(req, service.config, { tunnelStatus }),
+    }
+    if (url.searchParams.get('detect') === '1') {
+      payload.tools = detectHttpsTools()
+    }
+    sendJson(res, 200, payload)
+    return true
+  }
+
+  if (path === '/api/tunnel/quick') {
+    if (req.method !== 'POST') {
+      sendJson(res, 405, { error: 'method not allowed' })
+      return true
+    }
+    try {
+      const body = await readJson(req, 20_000)
+      const action = String(body?.action || '').trim()
+      const protocol = body?.protocol || service.config.tunnel?.protocol || 'http2'
+      const port = service.config.server?.port || 8291
+      if (action === 'start') {
+        await service.tunnel.startQuick({ port, protocol })
+      } else if (action === 'stop') {
+        await service.tunnel.stop()
+      } else if (action === 'restart') {
+        await service.tunnel.stop()
+        await service.tunnel.startQuick({ port, protocol })
+      } else {
+        sendJson(res, 400, { error: 'action 必须是 start / stop / restart' })
+        return true
+      }
+      sendJson(res, 200, buildStatePayload(service, req))
+    } catch (err) {
+      const status = err instanceof TunnelError
+        ? err.status
+        : (err instanceof HttpInputError ? err.status : 502)
+      sendJson(res, status, { error: String(err?.message || err), code: err?.code || 'tunnel_error' })
+    }
+    return true
+  }
+
+  if (path === '/api/tunnel/sync-kv') {
+    if (req.method !== 'POST') {
+      sendJson(res, 405, { error: 'method not allowed' })
+      return true
+    }
+    try {
+      const body = await readJson(req, 20_000).catch(() => ({}))
+      const out = await service.tunnel.syncKv(body?.url || '')
+      sendJson(res, 200, out)
+    } catch (err) {
+      const status = err instanceof TunnelError
+        ? err.status
+        : (err instanceof HttpInputError ? err.status : 502)
+      sendJson(res, status, { error: String(err?.message || err), code: err?.code || 'kv_sync_failed' })
+    }
+    return true
+  }
+
+  if (path === '/api/openai-server/gen-key') {
+    if (req.method !== 'POST') {
+      sendJson(res, 405, { error: 'method not allowed' })
+      return true
+    }
+    const apiKey = `sk-ab-${randomBytes(24).toString('base64url')}`
+    sendJson(res, 200, { apiKey })
+    return true
+  }
+
+  return false
 }
 
 async function handleSetupRoutes(service, req, res, path, url) {

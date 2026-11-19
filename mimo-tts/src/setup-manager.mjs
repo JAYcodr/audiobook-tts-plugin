@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { lanAddresses } from './auth.mjs'
 import { DEFAULT_MIN_MODEL_BYTES, DEFAULT_MIN_VOCODER_BYTES, validateModelDir } from './local.mjs'
 import { expandHomePath, resolveRepoRoot } from './paths.mjs'
+import { detectHttpsTools } from './tunnel-manager.mjs'
 
 const DEFAULT_SIDECAR_SCRIPT = fileURLToPath(new URL('../sidecar/server.py', import.meta.url))
 const LOG_RING_LIMIT = 800
@@ -362,6 +363,78 @@ export async function runDoctor({
     checks.push({ id: 'refs', label: '内置参考音库', status: 'warn', message: '未发现内置 refs/ 样本（可通过参考音库上传自定义音频）' })
   } else {
     checks.push({ id: 'refs', label: '内置参考音库', status: 'pass', message: `${env.refs.builtinAvailableCount}/${env.refs.builtinCount} 个内置样本可用` })
+  }
+
+  const oaSrv = cfg.openaiServer || {}
+  if (oaSrv.enabled) {
+    const hasCustomKey = Boolean(String(oaSrv.apiKey || '').trim())
+    const hasAuthToken = Boolean(String(auth.token || '').trim())
+    if (!hasCustomKey && !hasAuthToken) {
+      checks.push({
+        id: 'openai-server',
+        label: 'OpenAI 端点状态',
+        status: 'warn',
+        message: '已开启对外 /v1/audio/speech，但未配置独立 apiKey 且缺少 auth.token',
+        hint: '建议在设置 Module 09 生成独立 Bearer 密钥',
+      })
+    } else {
+      checks.push({
+        id: 'openai-server',
+        label: 'OpenAI 端点状态',
+        status: 'pass',
+        message: hasCustomKey ? '已开启（独立 Bearer 密钥鉴权）' : '已开启（复用 URL Token 鉴权）',
+      })
+    }
+  } else {
+    checks.push({
+      id: 'openai-server',
+      label: 'OpenAI 端点状态',
+      status: 'pass',
+      message: '已关闭（默认安全模式，仅暴露 Legado 接口）',
+    })
+  }
+
+  const httpsTools = probe.httpsTools || detectHttpsTools({ probe })
+  const tunnelSt = service.tunnel ? service.tunnel.status() : null
+  const publicUrl = String(cfg.server?.publicUrl || '').trim()
+  const relayUrl = String(cfg.tunnel?.kvSync?.publicRelayUrl || '').trim()
+  if (tunnelSt?.state === 'running' && tunnelSt.quickUrl) {
+    checks.push({
+      id: 'https-tunnel',
+      label: 'HTTPS 隧道状态',
+      status: 'pass',
+      message: `Quick Tunnel 运行中：${tunnelSt.quickUrl}`,
+    })
+  } else if (publicUrl || relayUrl) {
+    checks.push({
+      id: 'https-tunnel',
+      label: 'HTTPS 隧道状态',
+      status: 'pass',
+      message: `已配置固定 HTTPS：${publicUrl || relayUrl}`,
+    })
+  } else if (httpsTools.tailscale?.funnelEnabled && httpsTools.tailscale?.funnelUrl) {
+    checks.push({
+      id: 'https-tunnel',
+      label: 'HTTPS 隧道状态',
+      status: 'pass',
+      message: `Tailscale Funnel 已启用：${httpsTools.tailscale.funnelUrl}`,
+    })
+  } else if (httpsTools.cloudflared?.installed) {
+    checks.push({
+      id: 'https-tunnel',
+      label: 'HTTPS 隧道状态',
+      status: 'warn',
+      message: `未开启公网 HTTPS（cloudflared 已就绪：${httpsTools.cloudflared.version || httpsTools.cloudflared.path}）`,
+      hint: '可在「交付」页一键启动 Quick Tunnel，或按 HTTPS-GUIDE.md 配置固定域名',
+    })
+  } else {
+    checks.push({
+      id: 'https-tunnel',
+      label: 'HTTPS 隧道状态',
+      status: 'warn',
+      message: '仅局域网可用（未检测到 cloudflared / 固定对外地址）',
+      hint: '公网听书推荐运行 brew install cloudflared 后使用 Quick Tunnel',
+    })
   }
 
   const summary = {

@@ -49,22 +49,35 @@ export function handleLegadoJson(req, res, url, config) {
   return sendJson(res, 200, [entry])
 }
 
-export function buildImportInfo(req, config) {
+export function buildImportInfo(req, config, { tunnelStatus = null } = {}) {
   const { token, enabled } = config.auth || {}
   const port = config.server?.port || 8291
-  const hostFromReq = String(req.headers?.host || '').split(':')[0]
+  const hostFromReq = String(req?.headers?.host || '').split(':')[0]
   const ips = lanAddresses()
   const host = ips.includes(hostFromReq) || (!ips.length && hostFromReq)
     ? hostFromReq
     : (ips[0] || hostFromReq || '127.0.0.1')
   const q = enabled && token ? `?token=${encodeURIComponent(token)}` : ''
-  const publicUrl = String(config.server?.publicUrl || '').replace(/\/+$/, '')
+  const publicUrl = String(config.server?.publicUrl || '').trim().replace(/\/+$/, '')
+  const quickTunnelUrl = String(tunnelStatus?.quickUrl || '').trim().replace(/\/+$/, '')
+  const relayBaseUrl = String(config.tunnel?.kvSync?.publicRelayUrl || '').trim().replace(/\/+$/, '')
+  const lanBaseUrl = `http://${host}:${port}`
   const lanList = ips.map((ip) => `http://${ip}:${port}`)
+  const bestOpenAiBase = publicUrl || relayBaseUrl || quickTunnelUrl || lanBaseUrl
   return {
-    jsonUrl: `http://${host}:${port}/legado.json${q}`,
-    listenUrl: `http://${host}:${port}/listening${q}`,
+    jsonUrl: `${lanBaseUrl}/legado.json${q}`,
+    listenUrl: `${lanBaseUrl}/listening${q}`,
     publicJsonUrl: publicUrl ? `${publicUrl}/legado.json${q}` : '',
     publicListenUrl: publicUrl ? `${publicUrl}/listening${q}` : '',
+    quickTunnelUrl,
+    quickJsonUrl: quickTunnelUrl ? `${quickTunnelUrl}/legado.json${q}` : '',
+    relayBaseUrl,
+    relayJsonUrl: relayBaseUrl ? `${relayBaseUrl}/legado.json${q}` : '',
+    openaiBaseUrl: `${bestOpenAiBase}/v1`,
+    openaiQuickBaseUrl: quickTunnelUrl ? `${quickTunnelUrl}/v1` : '',
+    openaiLanBaseUrl: `${lanBaseUrl}/v1`,
+    openaiEnabled: Boolean(config.openaiServer?.enabled),
+    openaiUsesCustomKey: Boolean(String(config.openaiServer?.apiKey || '').trim()),
     lanUrls: lanList,
     hasToken: Boolean(enabled && token),
   }

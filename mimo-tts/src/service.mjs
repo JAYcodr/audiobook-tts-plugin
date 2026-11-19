@@ -24,6 +24,7 @@ import { OpenAiTtsProvider } from './providers/openai.mjs'
 import { RefsStore } from './refs-store.mjs'
 import { SetupManager } from './setup-manager.mjs'
 import { splitText, toRequests } from './split.mjs'
+import { TunnelManager } from './tunnel-manager.mjs'
 import { concatWavs } from './wav.mjs'
 
 export const VERSION = '0.4.0'
@@ -87,6 +88,10 @@ export class TtsService {
     this.setup = new SetupManager({
       dataDir: store.dataDir || '',
       refsStore: this.refs,
+      getConfig: () => this.store.config,
+      log: this.log,
+    })
+    this.tunnel = new TunnelManager({
       getConfig: () => this.store.config,
       log: this.log,
     })
@@ -161,6 +166,7 @@ export class TtsService {
     this.metrics.flush()
     await Promise.all([
       this.setup?.shutdown().catch(() => {}),
+      this.tunnel?.shutdown().catch(() => {}),
       this.registry.shutdown(),
     ])
     return this.stopServer()
@@ -418,6 +424,13 @@ export class TtsService {
     const { host, port } = this.config.server
     if (before.server.host !== host || before.server.port !== port) {
       if (this.server) await this.restart()
+      if (this.tunnel?.isActive()) {
+        await this.tunnel.stop().catch(() => {})
+        await this.tunnel.startQuick({
+          port,
+          protocol: this.config.tunnel?.protocol || 'http2',
+        }).catch((err) => this.log(`[warn] Quick Tunnel 换端口重启失败：${err?.message || err}`))
+      }
     }
     return { problems: [], config: this.config, service: this.info() }
   }
