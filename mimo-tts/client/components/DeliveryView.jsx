@@ -2,12 +2,14 @@ import React from 'react'
 import { BODY_TEXT, ERR_CODES, PROVIDER_CN } from '../constants.js'
 import { curlText, legadoPayload } from '../delivery.js'
 import { num } from '../format.js'
+import { HttpsAccessCard } from './HttpsAccessCard.jsx'
 import { PreviewPlayer } from './PreviewPlayer.jsx'
 import { Rowx } from './Primitives.jsx'
 import { QrCard } from './QrCard.jsx'
 
 export function DeliveryView({
-  service, config, importInfo, onCopy, onExportConfig, onOpenSetup, showToast,
+  service, config, importInfo, tunnel, onRefreshState, onOpenSettings,
+  onCopy, onExportConfig, onOpenSetup, showToast,
 }) {
   const imp = importInfo || {}
   const cfg = config || {}
@@ -15,6 +17,9 @@ export function DeliveryView({
   const hasToken = Boolean(imp.hasToken)
   const lanUrls = Array.isArray(imp.lanUrls) ? imp.lanUrls : []
   const publicJson = imp.publicJsonUrl || ''
+  const relayJson = imp.relayJsonUrl || (imp.relayBaseUrl && imp.jsonUrl ? `${imp.relayBaseUrl}/legado.json${cfg.auth?.enabled && cfg.auth?.token ? `?token=${encodeURIComponent(cfg.auth.token)}` : ''}` : '')
+  const wanJson = publicJson || relayJson
+  const quickJson = imp.quickJsonUrl || ''
   const jsonUrl = imp.jsonUrl || '—'
   const listenUrl = imp.listenUrl || '—'
   const token = cfg.auth?.token || ''
@@ -25,8 +30,30 @@ export function DeliveryView({
   const concurrency = num(cfg.synth?.concurrency)
   const rpm = num(cfg.limits?.rpm)
   const provider = service?.provider || cfg.upstream?.provider || 'mimo'
+  const openaiEnabled = Boolean(imp.openaiEnabled ?? cfg.openaiServer?.enabled)
+  const openaiUsesCustomKey = Boolean(imp.openaiUsesCustomKey || cfg.openaiServer?.apiKey)
+  const openaiBaseUrl = imp.openaiBaseUrl || `${imp.publicTunnelUrl || imp.relayBaseUrl || imp.quickTunnelUrl || `http://127.0.0.1:${service?.port || cfg.server?.port || 8291}`}/v1`
+  const openaiModel = cfg.openaiServer?.defaultModel || 'audiobook-tts'
+  const openaiKeyDisplay = openaiUsesCustomKey
+    ? `${cfg.openaiServer?.apiKey || '已配置独立密钥'}（防泄露已掩码，请在设置 09 生成时保存）`
+    : (token || '未生成')
+  const keyPlaceholder = openaiUsesCustomKey ? '<你的独立_OPENAI_KEY>' : (token || '<你的_URL_TOKEN>')
+  const openaiCurl = [
+    `curl -X POST '${openaiBaseUrl}/audio/speech' \\`,
+    `  -H 'Authorization: Bearer ${keyPlaceholder}' \\`,
+    "  -H 'Content-Type: application/json' \\",
+    `  -d '{"model":"${openaiModel}","input":"山道上起了雾。","voice":"alloy","response_format":"wav"}' \\`,
+    '  --output openai-test.wav',
+  ].join('\n')
+  const httpsRouteLabel = publicJson
+    ? '固定域名'
+    : imp.relayBaseUrl
+      ? 'Worker 中转'
+      : imp.quickTunnelUrl
+        ? 'Quick Tunnel'
+        : '仅局域网'
   const dlvMeta = running
-    ? `局域网直连 · ${hasToken ? '令牌已配置' : '令牌未启用'}${publicJson ? ' · 对外地址已设置' : ''}`
+    ? `局域网直连 · ${hasToken ? '令牌已配置' : '令牌未启用'}${wanJson ? ' · 固定公网就绪' : imp.quickTunnelUrl ? ' · Quick Tunnel 运行中' : ''}`
     : '服务已停止 · 先启动再交付'
 
   const checks = [
@@ -34,7 +61,8 @@ export function DeliveryView({
     [hasToken, 'URL 令牌', hasToken ? '已配置' : '缺失'],
     [Boolean(cfg.auth?.enabled), 'Basic 鉴权', cfg.auth?.enabled ? '开启' : '关闭'],
     [lanUrls.length > 0, '局域网入口', `${lanUrls.length} 个`],
-    [Boolean(publicJson), '对外地址', publicJson || '未设置'],
+    [Boolean(publicJson || imp.relayBaseUrl || imp.quickTunnelUrl), 'HTTPS 通道', httpsRouteLabel],
+    [openaiEnabled, 'OpenAI 端点', openaiEnabled ? (openaiUsesCustomKey ? '开启 · 独立Key' : '开启 · 复用Token') : '已关闭'],
     [extraCount > 0, '附加请求头', extraCount ? `${extraCount} 项` : '未设置'],
     [true, '端口', `${service?.host || cfg.server?.host || '—'}:${service?.port || cfg.server?.port || '—'}`],
     [true, '引擎', PROVIDER_CN[provider] || provider],
@@ -106,6 +134,16 @@ export function DeliveryView({
           <div className="dmeta">{dlvMeta}</div>
         </div>
 
+        <HttpsAccessCard
+          service={service}
+          config={config}
+          importInfo={imp}
+          tunnel={tunnel}
+          onRefreshState={onRefreshState}
+          onCopy={onCopy}
+          showToast={showToast}
+        />
+
         <div className="qr-grid" aria-label="离线导入二维码">
           <QrCard
             title="局域网扫码导入"
@@ -114,15 +152,76 @@ export function DeliveryView({
             copyKind="import"
             onCopy={onCopy}
           />
-          {publicJson ? (
+          {wanJson ? (
             <QrCard
               title="公网穿透扫码导入"
-              badge="WAN"
-              url={publicJson}
-              copyKind="public-import"
+              badge={publicJson ? 'WAN' : 'RELAY'}
+              url={wanJson}
+              copyKind={publicJson ? 'public-import' : 'relay-import'}
               onCopy={onCopy}
             />
           ) : null}
+          {quickJson ? (
+            <QrCard
+              title="临时 HTTPS 扫码导入"
+              badge="QUICK"
+              url={quickJson}
+              copyKind="quick-import"
+              onCopy={onCopy}
+            />
+          ) : null}
+        </div>
+
+        <div className="labelblock openai-card" id="openaiAccessCard">
+          <div className="lb-hd">
+            <span className="silk">OPENAI COMPATIBLE <b>OpenAI 兼容阅读软件接入单</b></span>
+            <span className={`tag${openaiEnabled ? ' tape' : ''}`}>
+              {openaiEnabled ? 'ENABLED' : 'DISABLED'}
+            </span>
+          </div>
+          {openaiEnabled ? (
+            <>
+              <div className="spec">
+                {specRow(
+                  'BASE URL',
+                  openaiBaseUrl,
+                  <button className="btn btn--sm btn--ghost" type="button" data-copy="openai-base" onClick={() => onCopy('openai-base')}>
+                    复制
+                  </button>,
+                )}
+                {specRow(
+                  'API KEY',
+                  openaiKeyDisplay,
+                  !openaiUsesCustomKey && token ? (
+                    <button className="btn btn--sm btn--ghost" type="button" data-copy="token" onClick={() => onCopy('token')}>
+                      复制
+                    </button>
+                  ) : null,
+                )}
+                {specRow('MODEL', `${openaiModel}（同时兼容 tts-1 / tts-1-hd / gpt-4o-mini-tts）`)}
+                {specRow('VOICE', 'alloy（自动旁白/对话分音色；也可填 narrator / dialogue / 预置音色）')}
+              </div>
+              <div className="https-bar" style={{ marginTop: 7 }}>
+                <button className="btn btn--sm btn--tape" type="button" data-copy="openai-card" onClick={() => onCopy('openai-card')}>
+                  复制完整配置
+                </button>
+                <button className="btn btn--sm" type="button" data-copy="openai-curl" onClick={() => onCopy('openai-curl')}>
+                  复制 curl /v1/audio/speech 验证
+                </button>
+                <button className="btn btn--sm btn--ghost" type="button" onClick={() => onOpenSettings?.('mod-openai-server')}>
+                  调整音色映射
+                </button>
+              </div>
+              <pre className="code" style={{ marginTop: 7 }}>{openaiCurl}</pre>
+            </>
+          ) : (
+            <div className="collapsed-note">
+              <span>对外 OpenAI 端点（<code>/v1/audio/speech</code> &amp; <code>/v1/models</code>）默认关闭。开启后可接入 Readest、书阁、开源阅读 AI 插件等客户端。</span>
+              <button className="btn btn--sm btn--tape" type="button" onClick={() => onOpenSettings?.('mod-openai-server')}>
+                前往渲染设置开启
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="labelblock">

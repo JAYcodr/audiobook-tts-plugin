@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react'
-import { buildDraftSnapshot, fmtDirtyVal } from '../config-draft.js'
+import { genOpenAiServerKeyApi } from '../api.js'
+import { DEFAULT_OPENAI_VOICE_MAP, buildDraftSnapshot, fmtDirtyVal } from '../config-draft.js'
+import { writeClipboard } from '../delivery.js'
 import { fmtBytes, fmtInt, localStateText, ttlText } from '../format.js'
 import { LexiconEditor } from './LexiconEditor.jsx'
 import { PreviewPlayer } from './PreviewPlayer.jsx'
@@ -48,8 +50,9 @@ const NAV_GROUPS = [
   {
     title: '四 · 交付与安全',
     items: [
-      ['mod-transport', '08', '端口 / Legado'],
-      ['mod-auth', '09', '鉴权 / 日志'],
+      ['mod-transport', '08', '端口 / Legado / 隧道'],
+      ['mod-openai-server', '09', '对外 OpenAI 端点'],
+      ['mod-auth', '10', '鉴权 / 日志'],
     ],
   },
 ]
@@ -142,6 +145,9 @@ export function SettingsView({
   const [expandLocal, setExpandLocal] = useState(false)
   const [expandOpenai, setExpandOpenai] = useState(false)
   const [newProfileName, setNewProfileName] = useState('')
+  const [genKeyBusy, setGenKeyBusy] = useState(false)
+  const [newMapVoice, setNewMapVoice] = useState('')
+  const [newMapTarget, setNewMapTarget] = useState('auto')
 
   const d = draft || applied || {}
   const provider = String(d['upstream.provider'] || 'mimo')
@@ -282,6 +288,58 @@ export function SettingsView({
     onSetBatch(patch)
     showToast('已从草稿移除自定义音色方案（保存后生效）')
   }
+
+  const setMapEntry = (k, val) => {
+    const cur = d['openaiServer.voiceMap'] && typeof d['openaiServer.voiceMap'] === 'object'
+      ? d['openaiServer.voiceMap']
+      : {}
+    onSet('openaiServer.voiceMap', { ...cur, [k]: val })
+  }
+
+  const removeMapEntry = (k) => {
+    const cur = d['openaiServer.voiceMap'] && typeof d['openaiServer.voiceMap'] === 'object'
+      ? { ...d['openaiServer.voiceMap'] }
+      : {}
+    delete cur[k]
+    onSet('openaiServer.voiceMap', cur)
+  }
+
+  const addMapEntry = () => {
+    const key = newMapVoice.trim()
+    const target = newMapTarget.trim()
+    if (!key || !target) {
+      showToast('请填写 OpenAI voice 名称和映射目标')
+      return
+    }
+    setMapEntry(key, target)
+    setNewMapVoice('')
+    setNewMapTarget('auto')
+    showToast(`已添加映射 ${key} → ${target}（保存后生效）`)
+  }
+
+  const generateOpenAiKey = async () => {
+    if (genKeyBusy) return
+    setGenKeyBusy(true)
+    try {
+      const res = await genOpenAiServerKeyApi()
+      if (res?.apiKey) {
+        onSet('openaiServer.apiKey', res.apiKey)
+        await writeClipboard(res.apiKey).catch(() => {})
+        showToast('已生成随机密钥并写入草稿（已尝试复制到剪贴板，保存后会掩码）')
+      }
+    } catch (err) {
+      showToast(`生成密钥失败：${String(err?.message || err)}`)
+    } finally {
+      setGenKeyBusy(false)
+    }
+  }
+
+  const voiceMapObj = d['openaiServer.voiceMap'] && typeof d['openaiServer.voiceMap'] === 'object' && !Array.isArray(d['openaiServer.voiceMap'])
+    ? d['openaiServer.voiceMap']
+    : DEFAULT_OPENAI_VOICE_MAP
+  const voiceMapEntries = Object.entries(voiceMapObj)
+  const rawOaServerKey = String(d['openaiServer.apiKey'] || '')
+  const canCopyOaServerKey = Boolean(rawOaServerKey && !/[\u2026\u2022\u00b7]/.test(rawOaServerKey))
 
   const assignRefToRole = (roleKey, item) => {
     const roleCn = roleKey === 'dialogue' ? '对话' : '旁白'
@@ -624,32 +682,199 @@ export function SettingsView({
           ], { wide: true })}
 
           <div className="mod-group-hd">
-            <span className="silk">GROUP 04 · <b>网络端口、Legado 与安全鉴权</b></span>
+            <span className="silk">GROUP 04 · <b>网络端口、对外 OpenAI 端点、Legado 与安全鉴权</b></span>
           </div>
 
-          {moduleShell('mod-transport', '08', '传输与 Legado 导出', 'TRANSPORT', 'transport', [
-            twoCol(
-              <Field key="sh" label="监听地址" sub="HOST" style={{ padding: 0 }}>{input('server.host', { spellCheck: false })}</Field>,
-              <Field key="sp" label="端口" sub="PORT" style={{ padding: 0 }}>{input('server.port', { type: 'number' })}</Field>,
-            ),
-            <Field key="pu" label="对外地址" sub="PUBLIC URL · 隧道/反代时填">{input('server.publicUrl', { spellCheck: false, placeholder: 'https://tts.example.com' })}</Field>,
-            <Field key="ln" label="Legado 引擎名" sub="EXPORT NAME">{input('legado.name', { spellCheck: false })}</Field>,
-            <Field key="lh" label="附加请求头" sub="JSON · 会写进导出的朗读引擎">
-              <Textarea value={d['legado.extraHeaders']} rows={2} spellCheck={false} onChange={set('legado.extraHeaders')} />
-            </Field>,
-          ])}
-
-          {moduleShell('mod-auth', '09', '鉴权与日志', 'AUTH', 'auth', [
-            <div key="ae" className="ctrl-row">
-              <div className="cl"><b>Basic 鉴权</b><i>ENABLED</i></div>
-              {toggle('auth.enabled', 'Basic 鉴权')}
+          {moduleShell('mod-transport', '08', '传输、Legado 与公网隧道', 'TRANSPORT · TUNNEL', 'transport', [
+            <div key="trcols" className="synth-cols">
+              <div>
+                {twoCol(
+                  <Field key="sh" label="监听地址" sub="HOST" style={{ padding: 0 }}>{input('server.host', { spellCheck: false })}</Field>,
+                  <Field key="sp" label="端口" sub="PORT" style={{ padding: 0 }}>{input('server.port', { type: 'number' })}</Field>,
+                )}
+                <Field key="pu" label="对外地址" sub="PUBLIC URL · 命名隧道/反代时填">{input('server.publicUrl', { spellCheck: false, placeholder: 'https://tts.example.dpdns.org' })}</Field>
+                <Field key="ln" label="Legado 引擎名" sub="EXPORT NAME">{input('legado.name', { spellCheck: false })}</Field>
+                <Field key="lh" label="附加请求头" sub="JSON · 会写进导出的朗读引擎">
+                  <Textarea value={d['legado.extraHeaders']} rows={2} spellCheck={false} onChange={set('legado.extraHeaders')} />
+                </Field>
+              </div>
+              <div>
+                <div className="ctrl-row">
+                  <div className="cl"><b>Quick Tunnel 协议</b><i>PROTOCOL</i></div>
+                  <Seg
+                    options={[
+                      { value: 'http2', label: 'HTTP/2' },
+                      { value: 'quic', label: 'QUIC' },
+                      { value: 'auto', label: 'Auto' },
+                    ]}
+                    value={d['tunnel.protocol'] || 'http2'}
+                    ariaLabel="Quick Tunnel 协议"
+                    onChange={(v) => onSet('tunnel.protocol', v)}
+                  />
+                </div>
+                <Field label="方案 D 中转域名" sub="WORKER RELAY URL">{input('tunnel.kvSync.publicRelayUrl', { spellCheck: false, placeholder: 'https://audiobook-tts-relay.xxx.workers.dev' })}</Field>
+                <div className="ctrl-row">
+                  <div className="cl"><b>启动隧道时自动同步 KV</b><i>AUTO SYNC</i></div>
+                  {toggle('tunnel.kvSync.enabled', '自动同步 KV')}
+                </div>
+                {twoCol(
+                  <Field label="KV 同步模式" sub="MODE" style={{ padding: 0 }}>
+                    <select className="input" value={d['tunnel.kvSync.mode'] || 'wrangler'} onChange={(e) => onSet('tunnel.kvSync.mode', e.target.value)}>
+                      <option value="wrangler">wrangler CLI</option>
+                      <option value="api">Cloudflare API</option>
+                    </select>
+                  </Field>,
+                  <Field label="KV 键名" sub="KEY NAME" style={{ padding: 0 }}>{input('tunnel.kvSync.keyName', { spellCheck: false, placeholder: 'tunnel_url' })}</Field>,
+                )}
+                {twoCol(
+                  <Field label="KV Namespace ID" sub="NAMESPACE" style={{ padding: 0 }}>{input('tunnel.kvSync.kvNamespaceId', { spellCheck: false })}</Field>,
+                  <Field label="Account ID (API 模式)" sub="ACCOUNT" style={{ padding: 0 }}>{input('tunnel.kvSync.accountId', { spellCheck: false })}</Field>,
+                )}
+              </div>
             </div>,
-            <Field key="au" label="用户名" sub="USER">{input('auth.user', { placeholder: '', spellCheck: false })}</Field>,
-            <Field key="ap" label="口令" sub="PASS · 已掩码">{input('auth.pass')}</Field>,
-            <Field key="at" label="URL 令牌" sub="TOKEN · 拼进导入地址">{input('auth.token', { spellCheck: false })}</Field>,
-            <Field key="lr" label="日志环" sub="RING">{input('log.ring', { type: 'number' })}</Field>,
-            <p key="ah" className="hint">令牌同时拼进 /legado.json 与 /listening 的 URL；改完保存后请重新复制导入地址。</p>,
-          ])}
+          ], { wide: true })}
+
+          {moduleShell('mod-openai-server', '09', '对外 OpenAI 兼容端点 (/v1/audio/speech)', d['openaiServer.enabled'] ? 'ENABLED' : 'DISABLED', 'openaiServer', [
+            <div key="oas-sec" className="https-warn" style={{ marginBottom: 6 }}>
+              <b>安全提示：</b>
+              默认关闭（返回 404）。开启后将对外暴露 <code>/v1/models</code> 与 <code>/v1/audio/speech</code>（兼容 Readest 等阅读客户端）。公网部署请务必生成独立 Bearer 密钥，并避免在公共场所泄露。
+            </div>,
+            <div key="oas-cols" className="synth-cols">
+              <div>
+                <div className="ctrl-row">
+                  <div className="cl"><b>启用对外 OpenAI 端点</b><i>ENABLED</i></div>
+                  {toggle('openaiServer.enabled', '启用对外 OpenAI 端点')}
+                </div>
+                <Field label="独立 Bearer 密钥" sub="API KEY · 留空则复用 auth.token">
+                  <div className="addr" style={{ gap: 6 }}>
+                    {input('openaiServer.apiKey', { spellCheck: false, placeholder: '留空则复用 URL 令牌，或点右侧生成 sk-ab-...' })}
+                    <button
+                      className="btn btn--sm btn--tape"
+                      type="button"
+                      disabled={genKeyBusy}
+                      onClick={generateOpenAiKey}
+                    >
+                      {genKeyBusy ? '生成中…' : '生成随机密钥'}
+                    </button>
+                    {canCopyOaServerKey ? (
+                      <button
+                        className="btn btn--sm"
+                        type="button"
+                        onClick={async () => {
+                          const ok = await writeClipboard(rawOaServerKey)
+                          showToast(ok ? '已复制独立密钥' : '复制被浏览器拦截')
+                        }}
+                      >
+                        复制
+                      </button>
+                    ) : null}
+                  </div>
+                </Field>
+                <div className="ctrl-row">
+                  <div className="cl"><b>按引号切分旁白/对话</b><i>SPLIT DIALOGUE</i></div>
+                  {toggle('openaiServer.splitDialogue', '按引号切分旁白/对话')}
+                </div>
+                <div className="ctrl-row">
+                  <div className="cl"><b>MP3 请求处理策略</b><i>MP3 FALLBACK</i></div>
+                  <Seg
+                    options={[
+                      { value: 'wav', label: 'WAV 兼容回退' },
+                      { value: 'strict', label: '严格模式 (400)' },
+                    ]}
+                    value={d['openaiServer.mp3Fallback'] || 'wav'}
+                    ariaLabel="MP3 格式回退策略"
+                    onChange={(v) => onSet('openaiServer.mp3Fallback', v)}
+                  />
+                </div>
+                <Field label="默认推荐模型名" sub="MODEL">{input('openaiServer.defaultModel', { spellCheck: false, placeholder: 'audiobook-tts' })}</Field>
+              </div>
+              <div className="voicemap-box">
+                <div className="ds-hd" style={{ marginBottom: 4 }}>
+                  <span className="silk">VOICE MAP <b>音色映射表</b></span>
+                  <button
+                    className="btn btn--sm btn--ghost"
+                    type="button"
+                    onClick={() => onSet('openaiServer.voiceMap', { ...DEFAULT_OPENAI_VOICE_MAP })}
+                  >
+                    恢复默认
+                  </button>
+                </div>
+                <p className="hint" style={{ marginTop: 0, marginBottom: 6 }}>
+                  支持填 <code>auto</code>（自动切分）、<code>narrator</code>（全段旁白）、<code>dialogue</code>（全段对话）、MiMo 预置名（如 <code>冰糖</code>/<code>茉莉</code>）、参考音 ID 或 OpenAI 自定义音色。
+                </p>
+                <div className="voicemap-table">
+                  {voiceMapEntries.map(([vk, vv]) => (
+                    <div key={vk} className="voicemap-row">
+                      <span className="mono vm-key">{vk}</span>
+                      <span className="muted">→</span>
+                      <input
+                        className="input"
+                        value={vv}
+                        spellCheck={false}
+                        aria-label={`音色映射 ${vk}`}
+                        onChange={(e) => setMapEntry(vk, e.target.value)}
+                      />
+                      <select
+                        className="input vm-quick"
+                        value={['auto', 'narrator', 'dialogue', ...presetVoices].includes(vv) ? vv : ''}
+                        aria-label={`快捷选择 ${vk}`}
+                        onChange={(e) => { if (e.target.value) setMapEntry(vk, e.target.value) }}
+                      >
+                        <option value="">快捷选…</option>
+                        <option value="auto">auto (自动切分)</option>
+                        <option value="narrator">narrator (旁白)</option>
+                        <option value="dialogue">dialogue (对话)</option>
+                        {presetVoices.map((pv) => <option key={pv} value={pv}>{pv}</option>)}
+                      </select>
+                      <button
+                        className="btn btn--sm btn--ghost"
+                        type="button"
+                        title={`删除映射 ${vk}`}
+                        onClick={() => removeMapEntry(vk)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  <div className="voicemap-add">
+                    <input
+                      className="input"
+                      value={newMapVoice}
+                      placeholder="新增 voice 名（如 custom）"
+                      spellCheck={false}
+                      onChange={(e) => setNewMapVoice(e.target.value)}
+                    />
+                    <input
+                      className="input"
+                      value={newMapTarget}
+                      placeholder="目标（auto/narrator/音色）"
+                      spellCheck={false}
+                      onChange={(e) => setNewMapTarget(e.target.value)}
+                    />
+                    <button className="btn btn--sm" type="button" onClick={addMapEntry}>添加</button>
+                  </div>
+                </div>
+              </div>
+            </div>,
+          ], { wide: true })}
+
+          {moduleShell('mod-auth', '10', '鉴权与日志', 'AUTH', 'auth', [
+            <div key="acols" className="synth-cols">
+              <div>
+                <div className="ctrl-row">
+                  <div className="cl"><b>Basic 鉴权</b><i>ENABLED</i></div>
+                  {toggle('auth.enabled', 'Basic 鉴权')}
+                </div>
+                <Field label="用户名" sub="USER">{input('auth.user', { placeholder: '', spellCheck: false })}</Field>
+                <Field label="口令" sub="PASS · 已掩码">{input('auth.pass')}</Field>
+              </div>
+              <div>
+                <Field label="URL 令牌" sub="TOKEN · 拼进导入地址">{input('auth.token', { spellCheck: false })}</Field>
+                <Field label="日志环" sub="RING">{input('log.ring', { type: 'number' })}</Field>
+                <p className="hint">令牌同时拼进 /legado.json 与 /listening 的 URL；改完保存后请重新复制导入地址。</p>
+              </div>
+            </div>,
+          ], { wide: true })}
         </div>
 
         <aside className="apply" aria-label="生效与改动">
@@ -665,7 +890,8 @@ export function SettingsView({
             <Rowx k="每段 / 并发" v={`${d['synth.maxSegmentChars'] || '—'} 字 / ${d['synth.concurrency'] || '—'} 路`} />
             <Rowx k="限速" v={`${d['limits.rpm'] || '—'} 次/分`} />
             <Rowx k="缓存" v={`${d['cache.maxEntries'] || '—'} 条 · TTL ${ttlText(d['cache.ttlSeconds'])}`} />
-            <Rowx k="对外地址" v={d['server.publicUrl'] || '未设置'} />
+            <Rowx k="OpenAI 端点" v={d['openaiServer.enabled'] ? '已开启' : '已关闭'} />
+            <Rowx k="对外地址" v={d['server.publicUrl'] || d['tunnel.kvSync.publicRelayUrl'] || '未设置'} />
           </div>
           <div className="rowx">
             <span>最后生效</span>

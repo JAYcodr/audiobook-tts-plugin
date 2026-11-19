@@ -48,3 +48,8 @@ export const fetchSetupStatusApi = (since = 0) => api(`/setup/status?since=${Num
 export const startSetupTaskApi = (payload) => api('/setup/run', { method: 'POST', body: JSON.stringify(payload) })
 export const cancelSetupTaskApi = () => api('/setup/cancel', { method: 'POST' })
 export const resetMetricsApi = () => api('/metrics', { method: 'DELETE' })
+
+export const fetchTunnelStatusApi = (detect = false) => api(`/tunnel/status${detect ? '?detect=1' : ''}`)
+export const controlQuickTunnelApi = (payload) => api('/tunnel/quick', { method: 'POST', body: JSON.stringify(payload) })
+export const syncTunnelKvApi = (payload = {}) => api('/tunnel/sync-kv', { method: 'POST', body: JSON.stringify(payload) })
+export const genOpenAiServerKeyApi = () => api('/openai-server/gen-key', { method: 'POST' })

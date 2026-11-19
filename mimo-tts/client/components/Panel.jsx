@@ -271,14 +271,39 @@ export function Panel() {
   const onCopy = async (kind) => {
     const imp = state?.import || {}
     const cfg = state?.config || {}
+    const tokenQuery = cfg.auth?.enabled && cfg.auth?.token ? `?token=${encodeURIComponent(cfg.auth.token)}` : ''
+    const openaiBase = imp.openaiBaseUrl || `http://127.0.0.1:${service?.port || cfg.server?.port || 8291}/v1`
+    const openaiModel = cfg.openaiServer?.defaultModel || 'audiobook-tts'
+    const openaiUsesCustomKey = Boolean(imp.openaiUsesCustomKey || cfg.openaiServer?.apiKey)
+    const keyHint = openaiUsesCustomKey ? '<独立 Bearer Key（见设置 09）>' : (cfg.auth?.token || '')
     let text = ''
     if (kind === 'import') text = imp.jsonUrl || ''
     else if (kind === 'public-import') text = imp.publicJsonUrl || ''
+    else if (kind === 'quick-import') text = imp.quickJsonUrl || ''
+    else if (kind === 'relay-import') text = imp.relayJsonUrl || (imp.relayBaseUrl ? `${imp.relayBaseUrl}/legado.json${tokenQuery}` : '')
+    else if (kind === 'quick-url') text = imp.quickTunnelUrl || state?.tunnel?.quickUrl || ''
     else if (kind === 'listen') text = imp.listenUrl || ''
     else if (kind === 'body') text = BODY_TEXT
     else if (kind === 'json') text = JSON.stringify(legadoPayload(imp, cfg), null, 2)
     else if (kind === 'curl') text = curlText(imp.listenUrl)
     else if (kind === 'token') text = cfg.auth?.token || ''
+    else if (kind === 'openai-base') text = openaiBase
+    else if (kind === 'openai-card') {
+      text = [
+        `Base URL: ${openaiBase}`,
+        `API Key: ${keyHint}`,
+        `Model: ${openaiModel}`,
+        'Voice: alloy（自动旁白/对话分音色）',
+      ].join('\n')
+    } else if (kind === 'openai-curl') {
+      text = [
+        `curl -X POST '${openaiBase}/audio/speech' \\`,
+        `  -H 'Authorization: Bearer ${keyHint}' \\`,
+        "  -H 'Content-Type: application/json' \\",
+        `  -d '{"model":"${openaiModel}","input":"山道上起了雾。","voice":"alloy","response_format":"wav"}' \\`,
+        '  --output openai-test.wav',
+      ].join('\n')
+    }
     if (!text) {
       showToast('没有可复制的内容')
       return
@@ -286,6 +311,16 @@ export function Panel() {
     const ok = await writeClipboard(text)
     showToast(ok ? `已复制 · ${COPY_LABEL[kind] || kind}` : '复制被浏览器拦截，请手动选中')
   }
+
+  const onOpenSettings = useCallback((moduleId = '') => {
+    setView('settings')
+    if (moduleId) {
+      setTimeout(() => {
+        const el = document.getElementById(moduleId)
+        el?.scrollIntoView?.({ block: 'start' })
+      }, 60)
+    }
+  }, [])
 
   useEffect(() => {
     const onKey = (e) => {
@@ -456,6 +491,9 @@ export function Panel() {
         service={service}
         config={config}
         importInfo={state.import || {}}
+        tunnel={state.tunnel || {}}
+        onRefreshState={refresh}
+        onOpenSettings={onOpenSettings}
         onCopy={onCopy}
         onExportConfig={exportConfig}
         onOpenSetup={() => setSetupOpen(true)}

@@ -163,4 +163,24 @@
   .mtt .role-grid, .mtt .detect-grid, .mtt .ref-up-grid, .mtt .lex-row-pair, .mtt .synth-cols{grid-template-columns:minmax(0,1fr)}
   .mtt .doc-row{grid-template-columns:18px minmax(0,1fr)}
   .mtt .doc-msg{grid-column:2}
+  .mtt .voicemap-row, .mtt .voicemap-add{grid-template-columns:minmax(0,1fr)}
 }
+
+/* Phase 3 (v0.5.0) HTTPS access & OpenAI server controls */
+.mtt .https-card{display:flex;flex-direction:column;gap:8px}
+.mtt .https-tabs{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.mtt .https-pane{display:flex;flex-direction:column;gap:7px;padding-top:4px;border-top:1px dashed var(--line)}
+.mtt .https-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mtt .https-acts{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.mtt .https-tool-pill{margin-left:auto;font-size:11px;color:var(--ink-2)}
+.mtt .https-status-row{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--ink-2)}
+.mtt .https-warn{font:11px/1.55 var(--mono);color:var(--ink);background:var(--grease-soft);border:1px solid var(--grease);padding:5px 8px;border-radius:var(--r)}
+.mtt .https-pitfalls{font:11px/1.55 var(--mono);color:var(--ink);background:var(--well);border-left:3px solid var(--grease);padding:6px 8px}
+.mtt .https-err{font-size:11px;color:var(--grease)}
+.mtt .voicemap-box{display:flex;flex-direction:column;gap:4px}
+.mtt .voicemap-table{display:flex;flex-direction:column;gap:5px}
+.mtt .voicemap-row{display:grid;grid-template-columns:72px 14px minmax(0,1fr) 110px auto;gap:5px;align-items:center}
+.mtt .voicemap-add{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:6px;align-items:center;margin-top:3px;padding-top:5px;border-top:1px dashed var(--line)}
+.mtt .vm-key{font-size:11px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mtt .vm-quick{font-size:11px}
+.mtt .openai-card .spec{grid-template-columns:86px minmax(0,1fr) auto}

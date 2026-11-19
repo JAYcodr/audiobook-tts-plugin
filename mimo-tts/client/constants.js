@@ -44,9 +44,15 @@ export const ERR_CODES = [
 export const COPY_LABEL = {
   import: '导入地址',
   'public-import': '公网导入地址',
+  'quick-import': '临时公网导入地址',
+  'relay-import': '中转公网导入地址',
+  'quick-url': 'Quick Tunnel 地址',
   listen: '朗读地址',
   body: 'BODY',
   json: 'legado.json',
   curl: 'curl',
   token: 'URL 令牌',
+  'openai-base': 'OpenAI Base URL',
+  'openai-card': 'OpenAI 接入配置',
+  'openai-curl': 'OpenAI curl 验证命令',
 }

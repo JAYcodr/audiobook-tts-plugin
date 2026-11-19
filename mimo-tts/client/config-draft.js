@@ -66,6 +66,19 @@ export const FIELDS = [
   { path: 'auth.token', label: 'URL 令牌', module: 'auth' },
   { path: 'legado.name', label: 'Legado 引擎名', module: 'transport' },
   { path: 'legado.extraHeaders', label: '附加请求头', module: 'transport' },
+  { path: 'tunnel.protocol', label: 'Quick Tunnel 协议', module: 'transport' },
+  { path: 'tunnel.kvSync.enabled', label: '自动同步 KV', module: 'transport' },
+  { path: 'tunnel.kvSync.mode', label: 'KV 同步方式', module: 'transport' },
+  { path: 'tunnel.kvSync.kvNamespaceId', label: 'KV Namespace ID', module: 'transport' },
+  { path: 'tunnel.kvSync.accountId', label: 'Cloudflare Account ID', module: 'transport' },
+  { path: 'tunnel.kvSync.keyName', label: 'KV 键名', module: 'transport' },
+  { path: 'tunnel.kvSync.publicRelayUrl', label: 'Worker 中转地址', module: 'transport' },
+  { path: 'openaiServer.enabled', label: '对外 OpenAI 端点', module: 'openaiServer' },
+  { path: 'openaiServer.apiKey', label: '对外 OpenAI Key', module: 'openaiServer' },
+  { path: 'openaiServer.splitDialogue', label: 'OpenAI 对话切分', module: 'openaiServer' },
+  { path: 'openaiServer.defaultModel', label: 'OpenAI 默认模型', module: 'openaiServer' },
+  { path: 'openaiServer.mp3Fallback', label: 'MP3 格式回退', module: 'openaiServer' },
+  { path: 'openaiServer.voiceMap', label: 'OpenAI 音色映射', module: 'openaiServer' },
   { path: 'log.ring', label: '日志环', module: 'auth' },
 ]
 
@@ -81,14 +94,29 @@ export const NUMERIC_FIELDS = new Set([
 
 export const BOOL_FIELDS = new Set([
   'upstream.hybrid.warmup', 'synth.stream', 'cache.enabled', 'auth.enabled', 'textRules.enabled',
+  'openaiServer.enabled', 'openaiServer.splitDialogue', 'tunnel.kvSync.enabled',
 ])
 
 export const ARRAY_FIELDS = new Set([
   'voiceProfiles.items', 'textRules.items',
 ])
 
+export const DEFAULT_OPENAI_VOICE_MAP = {
+  alloy: 'auto',
+  nova: 'auto',
+  shimmer: 'narrator',
+  echo: 'dialogue',
+  onyx: 'dialogue',
+  fable: 'narrator',
+}
+
 const str = (v, d = '') => (v == null ? d : String(v))
 const cloneArr = (arr) => (Array.isArray(arr) ? JSON.parse(JSON.stringify(arr)) : [])
+const clonePlainObj = (obj, fallback) => (
+  obj && typeof obj === 'object' && !Array.isArray(obj)
+    ? JSON.parse(JSON.stringify(obj))
+    : JSON.parse(JSON.stringify(fallback))
+)
 
 export function fromConfig(cfg) {
   const c = cfg || {}
@@ -111,6 +139,9 @@ export function fromConfig(cfg) {
   const legado = c.legado || {}
   const limits = c.limits || {}
   const log = c.log || {}
+  const oaSrv = c.openaiServer || {}
+  const tun = c.tunnel || {}
+  const kv = tun.kvSync || {}
   const headers = legado.extraHeaders && typeof legado.extraHeaders === 'object' && !Array.isArray(legado.extraHeaders)
     ? legado.extraHeaders
     : {}
@@ -178,6 +209,19 @@ export function fromConfig(cfg) {
     'auth.token': str(auth.token),
     'legado.name': str(legado.name, '听书值守 TTS'),
     'legado.extraHeaders': JSON.stringify(headers, null, 2),
+    'tunnel.protocol': str(tun.protocol, 'http2'),
+    'tunnel.kvSync.enabled': Boolean(kv.enabled),
+    'tunnel.kvSync.mode': str(kv.mode, 'wrangler'),
+    'tunnel.kvSync.kvNamespaceId': str(kv.kvNamespaceId),
+    'tunnel.kvSync.accountId': str(kv.accountId),
+    'tunnel.kvSync.keyName': str(kv.keyName, 'tunnel_url'),
+    'tunnel.kvSync.publicRelayUrl': str(kv.publicRelayUrl),
+    'openaiServer.enabled': Boolean(oaSrv.enabled),
+    'openaiServer.apiKey': str(oaSrv.apiKey),
+    'openaiServer.splitDialogue': oaSrv.splitDialogue !== false,
+    'openaiServer.defaultModel': str(oaSrv.defaultModel, 'audiobook-tts'),
+    'openaiServer.mp3Fallback': str(oaSrv.mp3Fallback, 'wav'),
+    'openaiServer.voiceMap': clonePlainObj(oaSrv.voiceMap, DEFAULT_OPENAI_VOICE_MAP),
     'log.ring': str(log.ring, '500'),
   }
 }
@@ -215,10 +259,20 @@ export function buildPatch(draft, changes) {
       setPath(patch, path, lines)
       continue
     }
-    if (path === 'auth.pass' || path === 'upstream.openai.apiKey') {
+    if (path === 'auth.pass' || path === 'upstream.openai.apiKey' || path === 'openaiServer.apiKey') {
       const s = String(v == null ? '' : v)
       if (/[\u2026\u2022\u00b7]/.test(s)) continue
       setPath(patch, path, s)
+      continue
+    }
+    if (path === 'openaiServer.voiceMap') {
+      const outMap = v && typeof v === 'object' && !Array.isArray(v) ? { ...v } : {}
+      if (ch.from && typeof ch.from === 'object') {
+        for (const k of Object.keys(ch.from)) {
+          if (!Object.hasOwn(outMap, k)) outMap[k] = null
+        }
+      }
+      setPath(patch, path, outMap)
       continue
     }
     if (path === 'legado.extraHeaders') {
@@ -268,6 +322,7 @@ export function buildDraftSnapshot(draft) {
 export function fmtDirtyVal(v) {
   if (typeof v === 'boolean') return v ? '开' : '关'
   if (Array.isArray(v)) return `${v.length} 项`
+  if (v && typeof v === 'object') return `${Object.keys(v).length} 项`
   if (v == null || v === '') return '—'
   const s = String(v).replace(/\s+/g, ' ')
   return s.length > 34 ? `${s.slice(0, 32)}…` : s
