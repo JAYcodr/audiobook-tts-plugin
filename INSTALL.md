@@ -88,7 +88,7 @@ dsh plugin --profile desktop add audiobook-tts-plugin@^0.5.2 --registry=https://
 dsh plugin --profile desktop update audiobook-tts-plugin
 ```
 
-再禁用/启用一次插件（或重启 DSH）即可。发布流程见 [docs/RELEASE.md](docs/RELEASE.md)。
+然后**完全退出并重启 DSH**（macOS 上托盘图标也要退；只禁用/启用插件不够，宿主会缓存已加载的模块）。发布流程见 [docs/RELEASE.md](docs/RELEASE.md)。
 
 ### 2.3 手动：用 plugin_manager（本地开发 / 离线包）
 

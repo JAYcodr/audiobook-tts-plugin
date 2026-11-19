@@ -83,10 +83,10 @@ dsh plugin --profile desktop update audiobook-tts-plugin --registry=https://regi
 > 加了 `--registry` 是因为 pnpm 也读 `~/.npmrc` 的镜像配置；镜像同步新版本可能滞后。
 > profile 名按实际环境替换（`desktop` / `web` / `tui`）。
 
-然后重载插件（任选其一）：
+然后**完全退出并重启 DSH**。
 
-- 在 DSH 里用 `plugin_manager` 对插件先禁用再启用
-- 或完全退出并重启 DSH
+> 只禁用/启用插件不够：宿主进程会缓存已加载的 ESM 模块，重载后 `health.version`
+> 可能还是旧版本；必须重启应用（macOS 上托盘图标也要退）。
 
 验证：
 
