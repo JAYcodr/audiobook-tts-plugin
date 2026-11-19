@@ -283,21 +283,19 @@ v0.4.0 起，`pythonPath`、`modelPath` 与参考音路径均支持 `~/` 家目�
 
 ---
 
-## 12. 还是不行
+## 12. 还是不行：按 SUPPORT.md 报障
 
-收集这三样，基本能定位：
+先收集，再发。完整流程（脱敏清单 + 可复制的 issue 正文 + 让 AI 代写）写在 [SUPPORT.md](SUPPORT.md)，这里只列最小集：
 
 ```bash
-# 1. 体检
-./setup/check-env.sh
-
-# 2. 健康 + 配置（Key 已掩码，可以发出来）
-curl -s localhost:8291/health
-curl -s http://127.0.0.1:<GUI端口>/mimo-tts/api/state | head -c 2000
-
-# 3. 最近日志
-tail -50 ~/.dsh/plugin-data/mimo-tts/local-engine.log 2>/dev/null
+./setup/check-env.sh                                                  # 体检结论
+curl -s localhost:8291/health                                         # 服务状态
+curl -s http://127.0.0.1:<GUI端口>/mimo-tts/api/state | head -c 2000  # Key 已掩码，可直接贴
+tail -50 ~/.dsh/plugin-data/audiobook-tts-plugin/local-engine.log 2>/dev/null
 ```
 
-然后对照 `INSTALL.md` 对应那一节。这个包的文档是按真实踩坑写的，
+贴之前把 `auth.token`、`openaiServer.apiKey`、`sk-` / `tp-` Key、`CF_API_TOKEN` 和账号邮箱换成 `***`。
+提交入口：<https://github.com/JAYcodr/audiobook-tts-plugin/issues>（个人项目，欢迎报，不承诺响应时间）。
+
+然后对照 `INSTALL.md` 对应那一节交互确认。这个包的文档是按真实踩坑写的，
 不要凭印象改配置——尤其是 `stream` 和 `speech_tokenizer` 这两处，改了会以更奇怪的方式坏掉。

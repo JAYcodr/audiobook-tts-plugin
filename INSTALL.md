@@ -22,7 +22,7 @@
 
 > 本包不含任何密钥，也不含模型权重。下面会让你自己准备。
 >
-> 还没有 DSH 的话，先装桌面客户端（作者会一起发给你），装完再回来从第 1 步开始。
+> 还没装 DSH 的话，先去 <https://www.deepseek.com/zh/harness> 装桌面端；也可以用[官方 releases](https://github.com/deepseek-ai/deepseek-harness/releases) 里的 `npx` 方式起 Web 版。装完再回来从第 1 步开始。
 
 **Windows 用户**：云端路线完全可用；本地引擎（MLX）不行。
 差别只有三处：
@@ -163,9 +163,11 @@ curl -s http://127.0.0.1:8291/health
 
 ### 5.1 拿 Key
 
-1. 打开 <https://platform.xiaomimimo.com/#/console/api-keys>
-2. 注册 / 登录 → 创建 API Key
-3. Key 以 `sk-` 开头，**只显示一次**，立刻存到密码管理器
+1. 打开 <https://platform.xiaomimimo.com/#/console/api-keys>（平台首页 <https://platform.xiaomimimo.com/>）
+2. 注册 / 登录（平台一般要求实名认证）→ 控制台 **API Keys** → 新建
+3. Key 以 `sk-` 开头，**只完整显示一次**，立刻存到密码管理器
+4. 按量付费得先有余额；新账号通常有免费体验额度，具体以平台页面为准
+5. 官方接入文档（Key 怎么传、Base URL、常见问题）：<https://mimo.mi.com/docs/zh-CN/quick-start/faq/api-integration>
 
 > 注意：还有一种是「Token Plan」的 `tp-` 开头 Key，它的 baseUrl 不一样
 > （`https://token-plan-cn.xiaomimimo.com/v1`）。本插件默认填的是按量付费的
@@ -355,13 +357,13 @@ sidecar 没起来时这个地址是连不上的——这很正常，它是**懒�
 - 本地热了就自动切回本地，之后不再用云
 
 代价：云和本地两套模型的音色不完全一致（同参考音，CAM++ 相似度约 0.82–0.86），
-**切换的那一句可能听得出差别**。作者的建议是先听一遍再决定要不要默认开。
+**切换的那一句可能听得出差别**。建议先听一遍再决定要不要默认开。
 
 ---
 
 ## 8. 想在公网听（可选，四选一 HTTPS 方案）
 
-手机端与大多数阅读客户端要求有效公网 TLS 证书（**严禁使用自签证书，Android 7+ 默认拒绝用户 CA**）。详细选型与防踩坑步骤请阅读 [HTTPS-GUIDE.md](HTTPS-GUIDE.md)，四条路径摘要如下：
+最常被问到的场景其实是**自己出门用**：通勤、出差、在公司或学校 Wi-Fi 下接着听同一本书。把服务给家人同事用是同一件事，只是多要考虑令牌分发和并发。两种情况都要求一条带有效证书的 HTTPS 地址；**严禁使用自签证书**（Android 7+ 默认拒绝用户 CA，会直接报 SSL 握手失败）。[HTTPS-GUIDE.md](HTTPS-GUIDE.md) 有选型对比、每节标了「要不要注册账号、去哪注册」，四条路径摘要如下：
 
 1. **A · Quick Tunnel（零域名一键启动）**：在控制台「交付」页点「一键启动 Quick Tunnel」（需已装 `cloudflared`），立即生成临时 `https://xxx.trycloudflare.com` 与扫码二维码（重启域名会变，仅作测试/个人临时分享，≤200 并发）。
 2. **B · Tailscale Funnel（零域名自用固定地址）**：本机登录后执行 `tailscale funnel --bg 8291`，将输出的 `https://<node>.ts.net` 填入「渲染设置 → 08 对外地址」。
@@ -463,3 +465,13 @@ node ~/dsh-plugins/audiobook-tts-plugin/mimo-tts/bin/audiobook-tts.mjs \
 环境变量（`MIMO_API_KEY` / `MIMO_TTS_PORT` / …）只在**首次启动、还没有 config.json** 时
 当作种子。一旦配置文件存在，以文件为准——这是故意的，免得环境变量悄悄覆盖你在
 控制台里的设置。
+
+---
+
+## 12. 卡住了：先查、再报
+
+- 症状对照：[TROUBLESHOOTING.md](TROUBLESHOOTING.md)——401、没声音、进度条不动、噪声、Worker 503 都在里面
+- 材料收集与脱敏清单：[SUPPORT.md](SUPPORT.md)，文末有可直接复制的 issue 正文
+- 提交入口：<https://github.com/JAYcodr/audiobook-tts-plugin/issues>（个人项目，欢迎报，不承诺响应时间）
+
+如果你在用 DSH 里的 AI 装，直接说「按仓库的 SUPPORT.md 生成一份脱敏的 issue 报告」——它会跑体检、贴日志、把 Key 换成 `***`。

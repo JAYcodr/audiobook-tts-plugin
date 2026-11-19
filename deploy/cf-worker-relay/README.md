@@ -10,6 +10,12 @@
 
 ---
 
+## 前置：Cloudflare 账号
+
+Worker 与 KV 都在 Cloudflare 上跑，**免费计划就够**（Workers 每天 10 万请求、KV 每天 10 万读 / 1000 写）。先去 <https://dash.cloudflare.com/sign-up> 注册并选免费计划。
+
+下一步的 `wrangler login` 会打开浏览器让你点授权——**不需要把账号密码交给任何脚本或 AI**；登录后 `wrangler whoami` 能看到账号邮箱与 Account ID，就说明通了。
+
 ## 5 步部署
 
 ### 1. 安装并登录 Wrangler
@@ -28,6 +34,8 @@ npx wrangler kv namespace create TUNNEL_KV
 ```
 
 将输出的 `id` 填入 `wrangler.toml` 的 `[[kv_namespaces]]` 段落。
+
+> 这个 `id` 就是控制台「渲染设置 → 传输 → KV Namespace ID」要填的值，别和 Account ID 搞混——Account ID 在 Cloudflare 控制台首页右侧栏，或 `wrangler whoami` 里能看到。
 
 ### 3. 部署 Worker
 
@@ -78,6 +86,13 @@ npx wrangler deploy
 - **国内连通性**：`*.workers.dev` 在部分运营商网络可能较慢或偶发抖动，如遇波动可按 [HTTPS-GUIDE.md](../../HTTPS-GUIDE.md) 绑定自定义免费域名（如 `.dpdns.org`）作为 Worker Custom Domain 或直接改用命名隧道。
 
 ---
+
+## 卡住了
+
+- `503 tunnel_unavailable` → Quick Tunnel 没起，或 KV 里还没有地址：控制台点「立即同步 KV」
+- `503 upstream_tunnel_error` → `cloudflared` 断线或后端端口变了：重启隧道
+- KV 一直不更新 → 手动跑一次 `sync-tunnel-url.mjs` 看输出；直连 8291 要带 `AUDIOBOOK_API_TOKEN`
+- 还是不行：按 [../../SUPPORT.md](../../SUPPORT.md) 收材料（`wrangler tail` 日志、`/health`、同步脚本原样报错），脱敏后提到 <https://github.com/JAYcodr/audiobook-tts-plugin/issues>
 
 ## 销毁与回收
 
