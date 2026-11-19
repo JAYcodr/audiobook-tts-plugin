@@ -2,7 +2,7 @@
 
 给「阅读」(Legado) 用的多引擎在线听书服务 + DSH 值守控制台。装进 DSH 后，侧栏会出现「听书值守」（时间线 / 渲染设置 / 工程史 / 交付四个工作面）；手机 Legado 只需粘贴一个导入地址即可听整本书：旁白与对话按引号自动分音色，默认返回长度真实的完整 WAV，阅读进度条与自动翻页精准同步。
 
-> 包名：`audiobook-tts-plugin` 0.3.0（兼容旧包身份/数据目录 `mimo-tts`） · MIT License
+> 包名：`audiobook-tts-plugin` 0.4.0（兼容旧包身份/数据目录 `mimo-tts`） · MIT License
 > 原作者验证环境：macOS（Apple Silicon）· DSH ≥ 0.2.x · Node ≥ 20
 > 仓库**不含任何密钥**，也**不含模型权重**。
 
@@ -72,12 +72,12 @@ node mimo-tts/bin/audiobook-tts.mjs --port 8291 --data ./data
 
 ### 3) 配置引擎并接入 Legado
 
-1. 在左侧栏打开「听书值守」→「渲染设置」：
+1. 在左侧栏打开「听书值守」→ 顶部异常引导条可一键打开「**向导与体检**」，或在「渲染设置」按 4 大分组配置：
    - **OpenAI 兼容（如本地 Kokoro / Edge-TTS）**：渲染来源选 `OpenAI`，填 `http://127.0.0.1:8880/v1`、模型和旁白/对话音色；
-   - **云端 MiMo**：渲染来源选 `云端`，在「传输」填 `sk-...` API Key；
-   - **本地 Qwen3-TTS（macOS arm64）**：先运行 `./setup/install-local-engine.sh`，再把打印的 Python / 模型 / `refs/narrator-14s.wav` 路径填入「本地引擎」。
-2. 保存后在「渲染设置 → 音色」或「交付」页点「**试听旁白 / 试听对话**」确认出声。
-3. 复制「交付」页的**一键导入地址** → 打开手机 Legado → 朗读界面 → 在线朗读 → 右上角网络导入 → 粘贴即可。
+   - **云端 MiMo**：渲染来源选 `云端`，直接在引擎区填 `sk-...` API Key，旁白/对话支持 `preset` 预置 / `design` 文字造音 / `clone` 声音克隆及一键音色方案；
+   - **本地 Qwen3-TTS（macOS arm64）**：可直接在「向导抽屉」点击「一键安装本地引擎（支持 hf-mirror）」，装完点「一键填入并切换本地」，或手动运行 `./setup/install-local-engine.sh`。
+2. 支持随时在「**文本发音与断句规则**」调试正则清洗，并点「**试听当前草稿**」在不保存时先验证音色与断句效果。
+3. 打开「交付」页用手机直接扫**纯离线 SVG 二维码（LAN / WAN）**，或复制一键导入地址 → 手机 Legado → 朗读界面 → 在线朗读 → 网络导入即可。
 
 详细安装、Cloudflare Tunnel 公网接入与多场景排错请阅读 [INSTALL.md](INSTALL.md) 与 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)。
 

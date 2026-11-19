@@ -55,6 +55,7 @@
   "scripts": {
     "start": "node bin/audiobook-tts.mjs",
     "build:client": "node tools/build-client.mjs",
+    "preview:ui": "node tools/preview-harness.mjs",
     "lint": "eslint .",
     "check:secrets": "node tools/check-secrets.mjs",
     "test": "node --test test/*.test.mjs",

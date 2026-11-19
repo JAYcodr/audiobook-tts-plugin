@@ -177,15 +177,15 @@ curl -s http://127.0.0.1:8291/health
 
 | 模块 | 字段 | 填什么 |
 |---|---|---|
-| 引擎 | 渲染来源 | `云端` |
-| 传输 | 上游地址 | 默认 `https://api.xiaomimimo.com/v1`，不用改 |
-| 传输 | API Key | 你刚建的 `sk-...`（每行一个；显示出来是掩码，正常） |
-| 音色 | 旁白 | `冰糖`（或 茉莉 / 苏打 / 白桦 / Mia / Chloe / Milo / Dean / mimo_default） |
-| 音色 | 对话 | 建议换一个，比如 `苏打`，旁白和对话才分得出来 |
+| 引擎与接入 | 渲染来源 | `云端` |
+| 引擎与接入 | 上游地址 | 默认 `https://api.xiaomimimo.com/v1`，不用改 |
+| 引擎与接入 | API Key | 你刚建的 `sk-...`（每行一个；显示出来是掩码，正常） |
+| 方案与音色 | 旁白 | 选 `preset`（如 `冰糖`），也可切到 `design` 文字造音或 `clone` 克隆 |
+| 方案与音色 | 对话 | 建议换一个音色（如 `苏打`），旁白和对话才分得出来 |
 
 点保存。右侧「生效面板」应该显示没有待生效项。
 
-> 你可以在「音色」模块或「交付」页直接点「**试听旁白 / 试听对话**」播放验证；也可以用下方的 curl 命令行验证。
+> 你可以直接在「方案与音色」内建的「**试听当前草稿**」（不保存即可验证旁白/对话/混排）或「交付」页试听播放器进行验证；「交付」页也提供**纯离线二维码**供手机直接扫码导入。
 
 > **OpenAI 兼容引擎（Kokoro / Edge-TTS / CosyVoice / OpenAI）**：如果你想接入社区的 `/v1/audio/speech` 服务，只需在「渲染设置 → 引擎」将渲染来源切换为 `OpenAI`，再在「03 OpenAI 兼容」模块填写接口地址（如 `http://127.0.0.1:8880/v1`）、模型名和旁白/对话音色即可（自建服务无需填 API Key）。
 
@@ -266,7 +266,11 @@ file /tmp/t.wav
 
 只支持 **macOS + Apple Silicon**。Intel Mac / Windows / NAS 请留在线云。
 
-### 7.1 一键准备
+### 7.1 一键准备（推荐在控制台「向导抽屉」直接安装）
+
+v0.4.0 起，最省事的做法是直接在控制台顶部点「**打开向导与体检**」→ 选择 `hf-mirror` 或 HuggingFace 官方源 → 点击「**一键安装本地引擎**」。界面内会实时展示进度条和日志；完成后点「**一键填入并切换本地**」，会自动填写 Python 路径、模型目录和内置旁白参考音 `builtin:narrator-14s`。
+
+你也可以在终端手动执行等价脚本：
 
 ```bash
 cd /path/to/audiobook-tts-plugin
@@ -275,10 +279,10 @@ cd /path/to/audiobook-tts-plugin
 
 它会做四件事：
 
-1. 在 `~/.dsh/plugin-data/mimo-tts/venv` 建 Python 虚拟环境
-2. 装 `mlx-audio`
+1. 在 `~/.dsh/plugin-data/audiobook-tts-plugin/venv`（或已有兼容的 `mimo-tts/` 目录）建 Python 虚拟环境
+2. 装锁定版本的 `mlx-audio` 与依赖
 3. 下模型 `mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit`（约 1.9 GB）
-4. 校验权重完整性，最后打印三条路径（Python / 模型目录 / 参考音）
+4. 校验权重完整性，最后打印路径（v0.4.0 起控制台支持写 `~/` 缩写，不必手动展开 `/Users/你`）
 
 国内网络下模型走 huggingface 会很慢，脚本会自动回退到 `hf-mirror.com`。
 想强制用镜像，直接：
@@ -312,10 +316,8 @@ ls -lh ~/.dsh/plugin-data/mimo-tts/models/qwen3tts-0.6b-base-8bit/speech_tokeniz
 
 | 字段 | 填什么 |
 |---|---|
-| 旁白参考音 | 本包 `refs/narrator-14s.wav` 的**绝对路径** |
-| 旁白参考文本 | 见 [refs/README.md](refs/README.md)，一个字都不能改 |
-| 对话参考音 | 可以先用同一条（缺了会自动回退到旁白参考音） |
-| 对话参考文本 | 同上 |
+| 旁白参考音选择 | 直接下拉选内置「旁白女声 · 14s 完整句（推荐）」，或先在「统一参考音库」上传自己的 `.wav/.mp3/.m4a` |
+| 对话参考音（可选） | 可保持留空（自动回退到旁白样本），或单独选另一条自定义音色 |
 
 最后「引擎 → 渲染来源」选 `本地`，保存。
 

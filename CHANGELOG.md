@@ -2,6 +2,19 @@
 
 所有显著改动均记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.4.0] - 2026-11-19
+
+### 新增
+- **全 UI 托管本地安装 + 自动探测 + 在线体检（Doctor）**：新增 `SetupManager` 与「初始化引导条 / 向导抽屉」，可在控制台零命令行探测芯片/Python/模型/声码器完整性、托管执行白名单脚本（支持 `hf-mirror` 镜像选择、流式日志、进度条与取消/重试），一键回填本地配置并运行在线体检。
+- **统一参考音库 + MiMo 三模式 + 音色预设方案**：新增 `RefsStore` 自动纳管内置 `refs/` 样本，支持浏览器上传 `.wav / .mp3 / .m4a`（≤ 10 MB、防路径穿越）、试听、编辑逐字文本与删除；本地 Qwen3-TTS、Hybrid 与 MiMo 克隆共用同一参考音库；控制台支持 MiMo `preset` / `design` / `clone` 三模式切换与一键应用「音色预设方案（Voice Profiles）」。
+- **文本发音与断句替换规则（Text Lexicon）**：新增 `lexicon.mjs` 两阶段规则引擎（切分前 `all` 与切分后 `narrator` / `dialogue`），内置网文清洗预设与 ReDoS 嵌套量词静态防护，控制台内置「原文 → 替换后 + 分段」实时调试器（`/api/text/preview`）。
+- **工程史持久化 + 草稿态交互试听 + 离线扫码交付**：`metrics.mjs` 支持防抖原子落盘 `metrics.json`（+ `.bak` 恢复与 `DELETE /api/metrics`）；`/api/preview` 支持**未保存草稿**、`mixed` 混排拼接与浏览器播放器控件；交付页引入构建期打包的 `uqr@0.1.3` 纯离线 SVG 二维码（LAN / WAN 双码与放大弹窗）。
+- **设置页 4 逻辑分组 + 本地 Preview Harness**：设置页重构为 4 大分组并按活动引擎动态折叠无关模块；新增 `tools/preview-harness.mjs`（`npm run preview:ui`）支持内置 Fixture 与轻量 React Hooks 垫片本地独立预览。
+
+### 修复与清理
+- 移除 Phase 1 遗留的冗余样式文件 `mimo-tts/src/deck.css`（唯一规范样式位于 `client/styles/deck.css`）。
+- 修复走带台在非 `hybrid` 模式下「混合」状态灯常亮误导的 bug；支持配置中的 `~` 家目录路径自动展开。
+
 ## [0.3.0] - 2026-11-19
 
 ### 新增

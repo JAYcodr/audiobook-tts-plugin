@@ -6,7 +6,7 @@
 
 ---
 
-我在装一个本地插件「听书值守」（`audiobook-tts-plugin` 0.3.0），它支持本地 Qwen3-TTS、OpenAI 兼容 TTS（Kokoro/Edge-TTS/CosyVoice）、MiMo 云端及混合模式，为 Legado（阅读 App）提供在线朗读服务。仓库已经放到我电脑上了，目录名是 `audiobook-tts-plugin`（里面有 `INSTALL.md` / `TROUBLESHOOTING.md` / `mimo-tts/`）。
+我在装一个本地插件「听书值守」（`audiobook-tts-plugin` 0.4.0），它支持本地 Qwen3-TTS、OpenAI 兼容 TTS（Kokoro/Edge-TTS/CosyVoice）、MiMo 云端及混合模式，为 Legado（阅读 App）提供在线朗读服务。仓库已经放到我电脑上了，目录名是 `audiobook-tts-plugin`（里面有 `INSTALL.md` / `TROUBLESHOOTING.md` / `mimo-tts/`）。
 你找不到就先在我常用的下载目录和 `~/dsh-plugins` 下搜一下。
 
 请按顺序做，**每完成一步告诉我结果**（成功/失败 + 关键输出），不要跳步，不要顺手动别的插件。
@@ -141,18 +141,20 @@ ls -lh ~/.dsh/plugin-data/mimo-tts/models/qwen3tts-0.6b-base-8bit/speech_tokeniz
 
 必须是 600 MB 以上。缺了它不会报错，合成出来全是噪声。
 
-然后把路径写进配置（参考音文本从包里的 `refs/README.md` 抄，**一个字都不能改**）：
+然后把路径写进配置（可直接用内置 `refId: "builtin:narrator-14s"`，路径支持 `~/` 缩写）：
 
 ```bash
 curl -s -X PUT http://127.0.0.1:<GUI端口>/mimo-tts/api/config \
   -H 'Content-Type: application/json' -d '{
   "upstream":{"provider":"local","local":{
-    "pythonPath":"/Users/你/.dsh/plugin-data/mimo-tts/venv/bin/python",
-    "modelPath":"/Users/你/.dsh/plugin-data/mimo-tts/models/qwen3tts-0.6b-base-8bit",
+    "pythonPath":"~/.dsh/plugin-data/audiobook-tts-plugin/venv/bin/python",
+    "modelPath":"~/.dsh/plugin-data/audiobook-tts-plugin/models/qwen3tts-0.6b-base-8bit",
     "refs":{
-      "narrator":{"wav":"/绝对路径/refs/narrator-14s.wav","text":"我能隐隐约约感觉到，你和我一样，都有想要守护的东西……是那种，一步都不能退让，用尽一切办法都要守护的东西。"}
+      "narrator":{"refId":"builtin:narrator-14s"}
     }}}}'
 ```
+
+你也可以直接调用 `POST http://127.0.0.1:<GUI端口>/mimo-tts/api/doctor` 让后端一次性体检配置、声码器与网络连通性。
 
 第一次试听会等 **10–15 秒**（拉进程 + 加载模型 + MLX 编译），这是正常的。
 第二次开始 3–6 秒。

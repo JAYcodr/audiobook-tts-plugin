@@ -1,6 +1,6 @@
 # 问题排查
 
-先跑一遍体检，能省一半时间：
+先在控制台顶部点「**打开向导与体检 → 运行体检（Doctor）**」，或在终端跑一遍体检脚本：
 
 ```bash
 cd /path/to/audiobook-tts-plugin
@@ -200,18 +200,18 @@ rm -rf ~/.dsh/plugin-data/audiobook-tts-plugin/models/qwen3tts-0.6b-base-8bit
 ./setup/download-model.sh
 ```
 
-### 7.2 报「本地引擎未在 180s 内就绪」
+### 8.2 报「本地引擎未在 180s 内就绪」
 
 看 `local-engine.log` 最后几行。常见三种：
 
 | 日志里出现 | 原因 | 处理 |
 |---|---|---|
-| `ModuleNotFoundError: mlx_audio` | Python 路径填错（填了系统 Python） | 填 `~/.dsh/plugin-data/mimo-tts/venv/bin/python` |
-| `No such file` / `模型目录不存在` | 路径写错，或模型没下完 | 用绝对路径，别用 `~` |
+| `ModuleNotFoundError: mlx_audio` | Python 路径填错（填了系统 Python） | 填 `~/.dsh/plugin-data/audiobook-tts-plugin/venv/bin/python` 或在向导里重装依赖 |
+| `No such file` / `模型目录不存在` | 路径写错，或模型没下完 | 用「环境自动探测 → 一键填入」，或核对模型目录 |
 | `Killed` / 内存不足 | 16 GB 以下机器同时干别的 | 关掉别的重活；`idleUnloadSeconds` 调小 |
-| `refs 里必须有 narrator` | 参考音没填全 | wav 和 text 都要填 |
+| `refs 里必须有 narrator` | 参考音没填全 | 选择内置 `builtin:narrator-14s` 或填写 wav + 逐字 text |
 
-### 7.3 报「Python 不存在」「旁白参考音不存在」
+### 8.3 报「Python 不存在」「旁白参考音不存在」
 
 代码里这几个报错很直白，照着改：
 
@@ -222,10 +222,9 @@ Python 不存在：<路径>
 本地引擎缺少旁白参考音（wav + text）
 ```
 
-路径里有空格或中文一般没问题，但**不要用 `~`** —— 配置里的路径不做 shell 展开，
-写 `/Users/you/...` 的完整形式。
+v0.4.0 起，`pythonPath`、`modelPath` 与参考音路径均支持 `~/` 家目录缩写；也可在「向导抽屉」点「重新探测 → 一键填入」。
 
-### 7.4 每段都要等十几秒
+### 8.4 每段都要等十几秒
 
 模型被空闲卸载了。默认 `idleUnloadSeconds: 300`（5 分钟）。
 听书时如果一段间隔超过 5 分钟（比如你去倒水），回来第一段就要重新加载。
@@ -233,7 +232,7 @@ Python 不存在：<路径>
 - 嫌烦：调到 `1800`（半小时）；
 - 机器内存够：设 `0` = 永驻，代价是 2.3 GB 常驻。
 
-### 7.5 只有 macOS 能用
+### 8.5 只有 macOS 能用
 
 `mlx-audio` 依赖 MLX，只有 Apple Silicon。Intel Mac / Windows / Linux NAS
 都会在 `pip install` 那一步失败或跑不起来。

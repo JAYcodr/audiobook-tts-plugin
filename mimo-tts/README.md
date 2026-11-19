@@ -46,10 +46,14 @@ mimo-tts/
 │   ├── control-api.mjs      共享 /api/* 路由（宿主与独立服务共用）
 │   ├── http.mjs             统一请求体读取与 JSON 输出
 │   ├── legado.mjs           /legado.json 生成与导入元数据
+│   ├── lexicon.mjs          发音与断句替换规则引擎（all + 角色两阶段、ReDoS 防护）
 │   ├── local.mjs            本地 Qwen3-TTS 进程生命周期 + 运行时声码器完整性校验
-│   ├── metrics.mjs          滑动窗口 RPM 闸门与耗时/字数/日统计
+│   ├── metrics.mjs          滑动窗口 RPM 闸门与原子落盘持久化指标（metrics.json）
 │   ├── mimo.mjs             MiMo 兼容重导出
-│   ├── service.mjs          TtsService 服务内核与流水线编排
+│   ├── paths.mjs            ~ 家目录展开与仓库根目录解析
+│   ├── refs-store.mjs       统一参考音库（内置 refs/ 纳管 + 自定义上传校验与读写）
+│   ├── service.mjs          TtsService 服务内核、草稿试听与流水线编排
+│   ├── setup-manager.mjs    环境探测、在线 Doctor 与白名单 UI 托管安装任务
 │   ├── split.mjs            段落引号切分（成对英文/中文引号、撇号保护、跨句栈）
 │   ├── wav.mjs              RIFF/WAV 解析、拼接、重采样、降混与 RMS 归一化
 │   └── providers/
@@ -60,7 +64,8 @@ mimo-tts/
 │       └── hybrid.mjs       混合冷启动（SessionTracker + 缓冲门控 + RMS 对齐）
 ├── sidecar/                 本地 Qwen3-TTS Python/MLX 边车与锁定依赖
 ├── tools/
-│   ├── build-client.mjs     esbuild 前端打包脚本
+│   ├── build-client.mjs     esbuild 前端打包脚本（内嵌 uqr@0.1.3 离线二维码）
+│   ├── preview-harness.mjs  本地独立 UI 预览服务器（--fixture / --live）
 │   └── check-secrets.mjs    仓库敏感信息与个人痕迹扫描脚本
 └── test/                    node --test 单元与集成测试
 ```
@@ -77,9 +82,17 @@ mimo-tts/
 |---|---|---|---|
 | `GET` | `/health` | 存活探针、引擎状态与缓存统计 | 免鉴权 |
 | `GET` | `/legado.json` | Legado 一键导入配置 | 内网裸连免令牌，公网/反代须带 `?token=` |
-| `GET/POST` | `/listening` | 朗读合成入口（返回真实时长 WAV） | Basic / `?token=` |
-| `GET/POST` | `/api/preview` | 单句试听（返回 WAV 及 `X-Mimo-Source` 等响应头） | Basic / `?token=`（宿主同源免鉴权） |
+| `GET/POST` | `/listening` | 朗读合成入口（应用 `textRules` 并返回真实时长 WAV） | Basic / `?token=` |
+| `GET/POST` | `/api/preview` | 交互试听（支持未保存 `draft` 与 `mixed` 角色，返回 WAV 与读数头） | Basic / `?token=`（宿主同源免鉴权） |
+| `POST` | `/api/text/preview` | 文本发音规则与旁白/对话分段实时调试 | 同上 |
+| `GET/POST` | `/api/refs` | 列出参考音库 / 上传 `.wav/.mp3/.m4a`（≤ 10 MB） | 同上 |
+| `GET/PUT/DELETE` | `/api/refs/:id` | 查询 / 编辑 / 删除自定义参考音（内置样本只读保护） | 同上 |
+| `GET` | `/api/refs/:id/audio` | 拉取参考音原始音频用于控制台内联试听 | 同上 |
+| `GET` | `/api/env/detect` | 探测苹果芯片、Python/venv、模型声码器与建议配置补丁 | 同上 |
+| `POST` | `/api/doctor` | 在线体检报告（端口 / LAN / 模型 / 参考音 / 可选网络连通性） | 同上 |
+| `GET/POST` | `/api/setup/*` | 白名单本地安装/模型下载任务（`status` / `run` / `cancel`） | 同上 |
 | `GET` | `/api/state` / `/api/live` / `/api/stats` | 控制台全量快照与统计 | 同上 |
+| `DELETE` | `/api/metrics` | 重置持久化工程史统计（`metrics.json`） | 同上 |
 | `GET/PUT` | `/api/config` | 读取脱敏配置 / 局部补丁热更新 | 同上 |
 | `POST` | `/api/validate` | 深度合并校验局部配置补丁 | 同上 |
 | `POST` | `/api/service` | `start` / `stop` / `restart` | 同上 |
@@ -92,10 +105,11 @@ mimo-tts/
 
 ```bash
 cd mimo-tts
-npm ci                   # 安装开发依赖（esbuild / eslint，零运行时依赖）
+npm ci                   # 安装开发依赖（esbuild / eslint / uqr，零运行时依赖）
 npm run build:client     # 从 client/ 重新打包单文件 client.js
+npm run preview:ui       # 启动独立 UI 预览 Harness（http://127.0.0.1:8711）
 npm run lint             # ESLint 检查（后端 .mjs + 前端 .js/.jsx）
 npm run check:secrets    # 扫描仓库敏感信息与个人痕迹
-npm test                 # 运行全部 57+ 项单元与集成测试
+npm test                 # 运行全部 74 项单元与集成测试
 npm run check            # 一键顺序执行 lint + secrets + build + test
 ```
