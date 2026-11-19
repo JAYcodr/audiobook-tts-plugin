@@ -15,6 +15,7 @@ import { HttpInputError, readBody, sendJson } from './http.mjs'
 import { handleLegadoJson } from './legado.mjs'
 import { applyGlobalRules, applySegmentRules } from './lexicon.mjs'
 import { Metrics, RpmGate } from './metrics.mjs'
+import { createOpenAiServerHandler } from './openai-server.mjs'
 import { ProviderError, ProviderRegistry } from './providers/base.mjs'
 import { HybridProvider } from './providers/hybrid.mjs'
 import { LocalProvider } from './providers/local.mjs'
@@ -91,6 +92,7 @@ export class TtsService {
     })
 
     this.controlHandler = createControlHandler({ service: this, requireAuth: true })
+    this.openaiServerHandler = createOpenAiServerHandler({ service: this })
     this.server = null
     this.startedAt = 0
     this.listening = false
@@ -182,6 +184,11 @@ export class TtsService {
       local: this.local.status(),
       hybrid: this.hybridStatus(),
       openai: this.openaiProvider.status(),
+      openaiServer: {
+        enabled: Boolean(this.config.openaiServer?.enabled),
+        defaultModel: this.config.openaiServer?.defaultModel || 'audiobook-tts',
+        mp3Fallback: this.config.openaiServer?.mp3Fallback || 'wav',
+      },
     }
   }
 
@@ -211,6 +218,9 @@ export class TtsService {
 
     if (path === '/listening') return this.handleListening(req, res, url)
     if (path === '/legado.json') return this.handleLegadoJson(req, res, url)
+    if (path === '/v1/models' || path === '/v1/audio/speech') {
+      return this.openaiServerHandler(req, res, path, url)
+    }
 
     if (path.startsWith('/api/')) {
       const handled = await this.controlHandler(req, res, path, url)

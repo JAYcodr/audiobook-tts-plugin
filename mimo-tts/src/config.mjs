@@ -106,6 +106,32 @@ export const DEFAULTS = {
   log: {
     ring: 500,
   },
+  openaiServer: {
+    enabled: false,
+    apiKey: '',
+    splitDialogue: true,
+    defaultModel: 'audiobook-tts',
+    mp3Fallback: 'wav',
+    voiceMap: {
+      alloy: 'auto',
+      nova: 'auto',
+      shimmer: 'narrator',
+      echo: 'dialogue',
+      onyx: 'dialogue',
+      fable: 'narrator',
+    },
+  },
+  tunnel: {
+    protocol: 'http2',
+    kvSync: {
+      enabled: false,
+      mode: 'wrangler',
+      kvNamespaceId: '',
+      accountId: '',
+      keyName: 'tunnel_url',
+      publicRelayUrl: '',
+    },
+  },
 }
 
 export const PRESET_VOICES = ['mimo_default', '冰糖', '茉莉', '苏打', '白桦', 'Mia', 'Chloe', 'Milo', 'Dean']
@@ -232,6 +258,18 @@ export function sanitizeConfigPatch(patch, currentConfig) {
     }
   }
 
+  if (cleanPatch.openaiServer && typeof cleanPatch.openaiServer === 'object') {
+    const apiKey = cleanPatch.openaiServer.apiKey
+    if (typeof apiKey === 'string' && isMaskedSecret(apiKey)) {
+      const existingApiKey = String(currentConfig?.openaiServer?.apiKey || '')
+      if (existingApiKey && apiKey === maskKey(existingApiKey)) {
+        delete cleanPatch.openaiServer.apiKey
+      } else {
+        problems.push('openaiServer.apiKey 包含无效的掩码字符，请填写完整密钥')
+      }
+    }
+  }
+
   if (cleanPatch.auth && typeof cleanPatch.auth === 'object' && typeof cleanPatch.auth.pass === 'string') {
     if (isMaskedSecret(cleanPatch.auth.pass)) {
       const existingPass = String(currentConfig?.auth?.pass || '')
@@ -253,6 +291,15 @@ export function validatePatch(currentConfig, patch, ctx = {}) {
     return { problems: sanitizeProblems, merged: currentConfig, cleanPatch }
   }
   const merged = merge(merge({}, currentConfig), cleanPatch)
+  if (
+    merged.openaiServer?.voiceMap
+    && typeof merged.openaiServer.voiceMap === 'object'
+    && !Array.isArray(merged.openaiServer.voiceMap)
+  ) {
+    for (const [vk, vv] of Object.entries(merged.openaiServer.voiceMap)) {
+      if (vv === null || vv === undefined) delete merged.openaiServer.voiceMap[vk]
+    }
+  }
   const problems = validate(merged, ctx)
   return { problems, merged, cleanPatch }
 }
@@ -294,6 +341,10 @@ const ENV_KEYS = {
   'STREAM_ENABLED': (c, v) => { c.synth.stream = String(v).toLowerCase() === 'true' },
   'CACHE_MAX_SIZE': (c, v) => { c.cache.maxEntries = Number(v) },
   'CACHE_TTL_SECONDS': (c, v) => { c.cache.ttlSeconds = Number(v) },
+  'OPENAI_SERVER_ENABLED': (c, v) => {
+    c.openaiServer.enabled = ['1', 'true', 'yes'].includes(String(v).trim().toLowerCase())
+  },
+  'OPENAI_SERVER_API_KEY': (c, v) => { c.openaiServer.apiKey = v },
 }
 
 /** 环境变量只做「首次种子」和容器部署用；控制台写入的 config.json 优先级更高。 */
@@ -397,6 +448,45 @@ export function validate(cfg, ctx = {}) {
       problems.push('混合启动 targetRms 必须是 0 或 0.02–0.4')
     }
   }
+  if (cfg.openaiServer !== undefined) {
+    const osrv = cfg.openaiServer
+    if (!osrv || typeof osrv !== 'object' || Array.isArray(osrv)) {
+      problems.push('openaiServer 必须是对象')
+    } else {
+      if (osrv.mp3Fallback !== undefined && !['wav', 'strict'].includes(osrv.mp3Fallback)) {
+        problems.push('openaiServer.mp3Fallback 仅允许 wav 或 strict')
+      }
+      if (osrv.voiceMap !== undefined) {
+        if (!osrv.voiceMap || typeof osrv.voiceMap !== 'object' || Array.isArray(osrv.voiceMap)) {
+          problems.push('openaiServer.voiceMap 必须是纯对象')
+        }
+      }
+    }
+  }
+  if (cfg.tunnel !== undefined) {
+    const tun = cfg.tunnel
+    if (!tun || typeof tun !== 'object' || Array.isArray(tun)) {
+      problems.push('tunnel 必须是对象')
+    } else {
+      if (tun.protocol !== undefined && !['http2', 'quic', 'auto'].includes(tun.protocol)) {
+        problems.push('tunnel.protocol 仅允许 http2 / quic / auto')
+      }
+      if (tun.kvSync !== undefined) {
+        const kv = tun.kvSync
+        if (!kv || typeof kv !== 'object' || Array.isArray(kv)) {
+          problems.push('tunnel.kvSync 必须是对象')
+        } else {
+          if (kv.mode !== undefined && !['wrangler', 'api'].includes(kv.mode)) {
+            problems.push('tunnel.kvSync.mode 仅允许 wrangler 或 api')
+          }
+          const relay = String(kv.publicRelayUrl || '').trim()
+          if (relay && !relay.startsWith('https://')) {
+            problems.push('tunnel.kvSync.publicRelayUrl 必须留空或以 https:// 开头')
+          }
+        }
+      }
+    }
+  }
   return problems
 }
 
@@ -476,6 +566,12 @@ export function redact(cfg) {
         : undefined,
     },
     auth: { ...cfg.auth, pass: cfg.auth.pass ? '••••••' : '' },
+    openaiServer: cfg.openaiServer
+      ? {
+        ...cfg.openaiServer,
+        apiKey: cfg.openaiServer.apiKey ? maskKey(cfg.openaiServer.apiKey) : '',
+      }
+      : undefined,
   }
 }
 
