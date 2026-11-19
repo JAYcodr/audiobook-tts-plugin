@@ -66,10 +66,11 @@ function buildFixtureState() {
       port: 8291,
       url: 'http://127.0.0.1:8291',
       uptimeSec: 3842,
-      version: '0.4.0',
+      version: '0.5.0',
       provider: 'hybrid',
       hybrid: { enabled: true, cloudReady: true, bootstrapCount: 2, maxCloudBootstrap: 6, localWarm: true, lastSource: 'hybrid-local', lastSwitchReason: 'buffer-ok 16.6>=12.0' },
       openai: { ready: false },
+      openaiServer: { enabled: true, defaultModel: 'audiobook-tts', mp3Fallback: 'wav' },
     },
     local: { state: 'ready', enabled: true, warm: true, pid: 41092, port: 8398, rssMb: 2140, requests: 18, lastError: '' },
     live: {
@@ -120,13 +121,64 @@ function buildFixtureState() {
       auth: { enabled: true, user: 'admin', pass: '', token: 'demo-token-2026' },
       limits: { rpm: 100 },
       log: { ring: 500 },
+      openaiServer: {
+        enabled: true,
+        apiKey: 'sk-ab…demo',
+        splitDialogue: true,
+        defaultModel: 'audiobook-tts',
+        mp3Fallback: 'wav',
+        voiceMap: {
+          alloy: 'auto',
+          nova: 'auto',
+          shimmer: 'narrator',
+          echo: 'dialogue',
+          onyx: 'dialogue',
+          fable: 'narrator',
+        },
+      },
+      tunnel: {
+        protocol: 'http2',
+        kvSync: {
+          enabled: true,
+          mode: 'wrangler',
+          kvNamespaceId: 'kv-demo-ns-id',
+          accountId: '',
+          keyName: 'tunnel_url',
+          publicRelayUrl: 'https://tts-relay.example.workers.dev',
+        },
+      },
     },
     import: {
       jsonUrl: 'http://192.168.1.100:8291/legado.json?token=demo-token-2026',
       publicJsonUrl: 'https://tts-demo.example.com/legado.json?token=demo-token-2026',
       listenUrl: 'http://192.168.1.100:8291/listening?token=demo-token-2026',
+      quickTunnelUrl: 'https://demo-preview-tunnel.trycloudflare.com',
+      quickJsonUrl: 'https://demo-preview-tunnel.trycloudflare.com/legado.json?token=demo-token-2026',
+      relayBaseUrl: 'https://tts-relay.example.workers.dev',
+      relayJsonUrl: 'https://tts-relay.example.workers.dev/legado.json?token=demo-token-2026',
+      openaiBaseUrl: 'https://tts-demo.example.com/v1',
+      openaiQuickBaseUrl: 'https://demo-preview-tunnel.trycloudflare.com/v1',
+      openaiLanBaseUrl: 'http://192.168.1.100:8291/v1',
+      openaiEnabled: true,
+      openaiUsesCustomKey: true,
       lanUrls: ['http://192.168.1.100:8291'],
       hasToken: true,
+    },
+    tunnel: {
+      state: 'running',
+      quickUrl: 'https://demo-preview-tunnel.trycloudflare.com',
+      protocol: 'http2',
+      port: 8291,
+      startedAt: now - 600_000,
+      pid: 52011,
+      error: '',
+      logs: ['[tunnel] Quick Tunnel 就绪: https://demo-preview-tunnel.trycloudflare.com'],
+      kvSync: {
+        state: 'ok',
+        lastSyncAt: now - 120_000,
+        lastUrl: 'https://demo-preview-tunnel.trycloudflare.com',
+        message: '已同步至 Cloudflare KV',
+      },
     },
     presetVoices: PRESET_VOICES,
     builtinVoiceProfiles: BUILTIN_VOICE_PROFILES,
@@ -478,6 +530,58 @@ function createFixtureHandler() {
       const wav = silentWav(1.0)
       res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': wav.length })
       return res.end(wav)
+    }
+    if (path === '/api/tunnel/status' && req.method === 'GET') {
+      const detect = url.searchParams.get('detect') === '1'
+      const payload = { tunnel: fixture.tunnel, import: fixture.import }
+      if (detect) {
+        payload.tools = {
+          cloudflared: { installed: true, path: '/opt/homebrew/bin/cloudflared', version: 'cloudflared version 2026.5.2' },
+          tailscale: {
+            installed: true,
+            path: '/usr/local/bin/tailscale',
+            online: true,
+            loggedIn: true,
+            backendState: 'Running',
+            dnsName: 'mac-demo.tailnet.ts.net',
+            funnelEnabled: false,
+            funnelUrl: 'https://mac-demo.tailnet.ts.net',
+          },
+          wrangler: { installed: true, path: '/opt/homebrew/bin/wrangler', version: '4.163.0' },
+        }
+      }
+      return send(200, payload)
+    }
+    if (path === '/api/tunnel/quick' && req.method === 'POST') {
+      const body = await readJson()
+      const action = String(body?.action || 'start')
+      const protocol = body?.protocol || fixture.tunnel.protocol || 'http2'
+      if (action === 'stop') {
+        fixture.tunnel = { ...fixture.tunnel, state: 'idle', quickUrl: '', pid: null, startedAt: 0 }
+        fixture.import = { ...fixture.import, quickTunnelUrl: '', quickJsonUrl: '', openaiQuickBaseUrl: '' }
+      } else {
+        const quickUrl = 'https://demo-preview-tunnel.trycloudflare.com'
+        fixture.tunnel = { ...fixture.tunnel, state: 'running', quickUrl, protocol, pid: 52011, startedAt: Date.now() }
+        fixture.import = {
+          ...fixture.import,
+          quickTunnelUrl: quickUrl,
+          quickJsonUrl: `${quickUrl}/legado.json?token=demo-token-2026`,
+          openaiQuickBaseUrl: `${quickUrl}/v1`,
+        }
+      }
+      return send(200, fixture)
+    }
+    if (path === '/api/tunnel/sync-kv' && req.method === 'POST') {
+      fixture.tunnel.kvSync = {
+        state: 'ok',
+        lastSyncAt: Date.now(),
+        lastUrl: fixture.tunnel.quickUrl || 'https://demo-preview-tunnel.trycloudflare.com',
+        message: '已同步至 Cloudflare KV (fixture)',
+      }
+      return send(200, { ok: true, kvSync: fixture.tunnel.kvSync, tunnel: fixture.tunnel })
+    }
+    if (path === '/api/openai-server/gen-key' && req.method === 'POST') {
+      return send(200, { apiKey: `sk-test-preview-${Date.now().toString(36)}` })
     }
     if (path === '/api/config' && req.method === 'PUT') return send(200, fixture)
     if (path === '/api/service' && req.method === 'POST') return send(200, fixture)

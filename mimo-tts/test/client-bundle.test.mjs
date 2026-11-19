@@ -121,7 +121,7 @@ test('client.js 产物可在 DSH ModuleLoader 中加载并渲染全部工作面'
   assert.equal(Glyph({ size: 16 }).type, 'svg')
 
   const sampleState = {
-    service: { running: true, port: 8291, provider: 'openai', uptimeSec: 120, version: '0.4.0', hybrid: {}, openai: { ready: true, model: 'kokoro' } },
+    service: { running: true, port: 8291, provider: 'openai', uptimeSec: 120, version: '0.5.0', hybrid: {}, openai: { ready: true, model: 'kokoro' }, openaiServer: { enabled: true } },
     local: { state: 'disabled', enabled: false },
     live: {
       rpm: { used: 2, limit: 100, waiting: 0 },
@@ -145,14 +145,35 @@ test('client.js 产物可在 DSH ModuleLoader 中加载并渲染全部工作面'
       legado: { name: '听书值守 TTS', extraHeaders: {} },
       limits: { rpm: 100 },
       log: { ring: 500 },
+      openaiServer: {
+        enabled: true,
+        apiKey: 'sk-ab…test',
+        splitDialogue: true,
+        defaultModel: 'audiobook-tts',
+        mp3Fallback: 'wav',
+        voiceMap: { alloy: 'auto', nova: 'auto', shimmer: 'narrator', echo: 'dialogue', onyx: 'dialogue', fable: 'narrator' },
+      },
+      tunnel: {
+        protocol: 'http2',
+        kvSync: { enabled: false, mode: 'wrangler', kvNamespaceId: '', accountId: '', keyName: 'tunnel_url', publicRelayUrl: '' },
+      },
     },
     import: {
       jsonUrl: 'http://127.0.0.1:8291/legado.json?token=tok-123',
       publicJsonUrl: 'https://tts.example.com/legado.json?token=tok-123',
       listenUrl: 'http://127.0.0.1:8291/listening?token=tok-123',
+      quickTunnelUrl: 'https://bundle-test.trycloudflare.com',
+      quickJsonUrl: 'https://bundle-test.trycloudflare.com/legado.json?token=tok-123',
+      relayBaseUrl: '',
+      openaiBaseUrl: 'https://tts.example.com/v1',
+      openaiQuickBaseUrl: 'https://bundle-test.trycloudflare.com/v1',
+      openaiLanBaseUrl: 'http://127.0.0.1:8291/v1',
+      openaiEnabled: true,
+      openaiUsesCustomKey: true,
       lanUrls: ['http://192.168.1.10:8291'],
       hasToken: true,
     },
+    tunnel: { state: 'running', quickUrl: 'https://bundle-test.trycloudflare.com', protocol: 'http2', kvSync: { state: 'idle' } },
     presetVoices: ['冰糖', '苏打'],
     builtinVoiceProfiles: [{ id: 'builtin:story-warm', name: '经典说书', builtin: true, voices: {} }],
     builtinRulePresets: [{ id: 'preset:strip-ps', name: '过滤 PS', pattern: '^PS:.*$', replace: '', regex: true, flags: 'gim', scope: 'all', enabled: true }],
@@ -193,10 +214,18 @@ test('client.js 产物可在 DSH ModuleLoader 中加载并渲染全部工作面'
       assert.ok(flatText.includes('统一参考音库'))
       assert.ok(flatText.includes('文本发音与断句规则'))
       assert.ok(flatText.includes('PREVIEW DRAFT'))
+      assert.ok(flatText.includes('对外 OpenAI 兼容端点'))
+      assert.ok(flatText.includes('生成随机密钥'))
+      assert.ok(flatText.includes('音色映射表'))
     }
     if (view === 'delivery') {
+      assert.ok(flatText.includes('公网 HTTPS 四选一接入与 Quick Tunnel'))
+      assert.ok(flatText.includes('OpenAI 兼容阅读软件接入单'))
       assert.ok(flatText.includes('局域网扫码导入'))
       assert.ok(flatText.includes('公网穿透扫码导入'))
+      assert.ok(flatText.includes('临时 HTTPS 扫码导入'))
+      assert.ok(flatText.includes('OpenAI 端点'))
+      assert.ok(flatText.includes('HTTPS 通道'))
       assert.ok(flatText.includes('<svg xmlns="http://www.w3.org/2000/svg"'), 'uqr 应输出离线 SVG 二维码')
     }
   }
@@ -220,7 +249,7 @@ test('client.js 产物可在 DSH ModuleLoader 中加载并渲染全部工作面'
   assert.ok(collectText(warnTree).join(' ').includes('MiMo 云端尚未填写 API Key'))
 })
 
-test('前端配置草稿保留旧掩码 Key 并支持 textRules / voiceProfiles / buildDraftSnapshot', () => {
+test('前端配置草稿保留旧掩码 Key 并支持 textRules / voiceProfiles / openaiServer / tunnel / buildDraftSnapshot', () => {
   const applied = fromConfig({
     upstream: {
       provider: 'openai',
@@ -235,6 +264,18 @@ test('前端配置草稿保留旧掩码 Key 并支持 textRules / voiceProfiles 
         speed: 1.0,
       },
     },
+    openaiServer: {
+      enabled: false,
+      apiKey: 'sk-old…3210',
+      splitDialogue: true,
+      defaultModel: 'audiobook-tts',
+      mp3Fallback: 'wav',
+      voiceMap: { alloy: 'auto', customOld: 'narrator' },
+    },
+    tunnel: {
+      protocol: 'http2',
+      kvSync: { enabled: false, mode: 'wrangler', kvNamespaceId: '', accountId: '', keyName: 'tunnel_url', publicRelayUrl: '' },
+    },
   })
   const draft = {
     ...applied,
@@ -243,6 +284,11 @@ test('前端配置草稿保留旧掩码 Key 并支持 textRules / voiceProfiles 
     'voices.narrator.mode': 'clone',
     'voices.narrator.refId': 'builtin:narrator-14s',
     'textRules.items': [{ id: 'r1', name: 'test', pattern: 'a', replace: 'b', scope: 'all', regex: false, enabled: true }],
+    'openaiServer.enabled': true,
+    'openaiServer.mp3Fallback': 'strict',
+    'openaiServer.voiceMap': { alloy: 'auto', customNew: '冰糖' },
+    'tunnel.protocol': 'quic',
+    'tunnel.kvSync.publicRelayUrl': 'https://relay.example.workers.dev',
   }
   const changes = diffFields(draft, applied)
   const { patch, problems } = buildPatch(draft, changes)
@@ -252,10 +298,19 @@ test('前端配置草稿保留旧掩码 Key 并支持 textRules / voiceProfiles 
   assert.equal(patch.voices.narrator.mode, 'clone')
   assert.equal(patch.voices.narrator.refId, 'builtin:narrator-14s')
   assert.equal(patch.textRules.items.length, 1)
+  assert.equal(patch.openaiServer.enabled, true)
+  assert.equal(patch.openaiServer.apiKey, undefined, '未修改的掩码 openaiServer.apiKey 不应写回')
+  assert.equal(patch.openaiServer.mp3Fallback, 'strict')
+  assert.equal(patch.openaiServer.voiceMap.customNew, '冰糖')
+  assert.equal(patch.openaiServer.voiceMap.customOld, null, '移除的映射键应标 null 供服务端删除')
+  assert.equal(patch.tunnel.protocol, 'quic')
+  assert.equal(patch.tunnel.kvSync.publicRelayUrl, 'https://relay.example.workers.dev')
 
   const snap = buildDraftSnapshot(draft)
   assert.equal(snap.voices.narrator.refId, 'builtin:narrator-14s')
   assert.equal(snap.textRules.items[0].replace, 'b')
+  assert.equal(snap.openaiServer.mp3Fallback, 'strict')
+  assert.equal(snap.tunnel.protocol, 'quic')
 })
 
 test('前端时间线数学函数处理 OpenAI 来源与空数据不产生 NaN', () => {

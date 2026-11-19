@@ -266,14 +266,20 @@ v0.4.0 起，`pythonPath`、`modelPath` 与参考音路径均支持 `~/` 家目�
 
 ---
 
-## 11. 公网 / Cloudflare
+## 11. 公网 / Cloudflare / 对外 OpenAI 端点
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| 公网地址 502 | 隧道 ingress 写了 `127.0.0.1`（云端容器自己） | 改成 Mac 的局域网 IP |
+| 公网地址 502 / 530 | 隧道断连，或命名隧道 ingress 写了不可达地址 | Quick Tunnel 点「重启」；命名隧道确认 `http://127.0.0.1:8291` 或 Mac 局域网 IP |
+| 手机报 SSL 握手失败 | 使用了自签 HTTPS 证书（Android 7+ 拒绝用户 CA） | **严禁自签证书**，改用 [HTTPS-GUIDE.md](HTTPS-GUIDE.md) 任一官方证书方案 |
+| Quick Tunnel 重启后手机连不上 | Quick Tunnel 每次重启都会分配新域名 | 在「交付」页重新扫码导入，或升级到方案 B/C/D 固定入口 |
+| Worker 中转返回 `503 tunnel_unavailable` | KV 中的 `tunnel_url` 缺失、过期或非 `trycloudflare.com` | 启动 Quick Tunnel 后在「交付」页点「立即同步 KV」 |
+| `/v1/audio/speech` 返回 `404 endpoint_disabled` | 对外 OpenAI 端点默认关闭 | 到「渲染设置 → 09 对外 OpenAI 兼容端点」打开开关并保存 |
+| `/v1/audio/speech` 返回 `401 invalid_api_key` | 客户端填写的 Bearer Key 不匹配 | 检查独立 `openaiServer.apiKey`（配置后不再接受 `auth.token`） |
+| `/v1/audio/speech` 请求 `mp3` 返回 `400` | 开启了 `mp3Fallback: 'strict'` | 改为 `wav` 兼容回退，或让客户端请求 `wav`/`pcm` |
 | 打开是 Access 登录页 | Cloudflare Access 拦了 | 在「传输 → 附加请求头」填 Service Token；导入这一步在局域网里做 |
 | 导入能用、播放 403 | 附加头没写进引擎 | 重新从「交付」页取地址 |
-| 域名能开但很慢 | 隧道绕了远路 | 换区域，或干脆只用局域网 |
+| 域名能开但很慢 | 隧道绕了远路或使用了 UDP/QUIC 被运营商限制 | 切回 `HTTP/2（推荐）` 协议，或换用局域网 / 命名隧道 |
 
 ---
 

@@ -2,6 +2,15 @@
 
 所有显著改动均记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [0.5.0] - 2026-11-19
+
+### 新增
+- **对外 OpenAI 兼容 TTS 服务端点（`/v1/audio/speech` & `/v1/models`）**：新增 `openai-server.mjs`，兼容 Readest 等标准 OpenAI TTS 客户端；默认安全关闭（`openaiServer.enabled = false` 返回 404），开启后支持 Bearer / `x-api-key` 鉴权（优先独立 `openaiServer.apiKey` 并享受同级脱敏掩码与 `sanitizeConfigPatch` 还原保护，留空复用 `auth.token`）、CORS 预检、`wav`/`pcm` 输出、`mp3` 兼容回退或严格 `400`、`speed` 语速档位与 OpenAI 透传映射、以及完整 `voiceMap`（`auto` 旁白/对话切分 / `narrator` / `dialogue` / MiMo 预置音色 / 参考音克隆 / OpenAI 自定义透传）与 Lexicon/缓存/计量流水线复用。
+- **低门槛 HTTPS 隧道管理器（`TunnelManager`）**：新增 `tunnel-manager.mjs`，只读短超时探测 `cloudflared` / `tailscale` / `wrangler`；支持控制台一键启停/重启受控白名单 Quick Tunnel（`HTTP/2` / `QUIC`）、单实例互斥锁、进程组 `SIGTERM -> SIGKILL` 彻底回收（杜绝孤儿进程）、换端口自动重启，以及与 `buildImportInfo` / `Doctor` 体检的完整联动。
+- **方案 D：Cloudflare Worker + KV 固定域名中转**：新增 `deploy/cf-worker-relay/`（`worker.js`、`sync-tunnel-url.mjs`、`wrangler.toml.example`、`README.md`），为无域名用户提供固定 `*.workers.dev` HTTPS 入口；严格仅放行听书与 OpenAI 路由（屏蔽 `/mimo-tts/api/*`、`/audiobook-tts/api/*`、`/api/*`）、校验 KV 地址匹配 `^https://[a-z0-9-]+\.trycloudflare\.com$` 防 SSRF、流式透传零缓冲，并支持启动隧道自动/手动与 5 分钟兜底同步。
+- **控制台设置与交付页升级**：设置页分组四新增 Module 09「对外 OpenAI 兼容端点」（含随机生成 `sk-ab-...` 密钥、MP3 回退策略与可编辑音色映射表）并将鉴权调至 Module 10；交付页新增 `<HttpsAccessCard />`（四路径切换引导卡、Quick Tunnel 控制与警示条）、「OpenAI 兼容阅读软件接入单」、Quick Tunnel 临时二维码与 Preflight 校验项。
+- **Agent 安装侧预检与 HTTPS 指南**：新增只读 JSON 探针 `setup/agent-preflight.sh`（严格不输出任何明文密钥）、`HTTPS-GUIDE.md`（四方案对比、DigitalPlat/eu.org 免费域名推荐与自签证书/ClouDNS/Freenom 避坑），并全面升级 `AI-SETUP-PROMPT.md` 为 v0.5.0 三问精准决策与端到端 curl 验收流程。
+
 ## [0.4.0] - 2026-11-19
 
 ### 新增

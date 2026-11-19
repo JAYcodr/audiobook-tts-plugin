@@ -260,6 +260,13 @@ file /tmp/t.wav
 
 应该 `200` + 几十 KB，`file` 认出 `RIFF ... WAVE audio`。
 
+### 6.5 接进 Readest / OpenAI 兼容阅读软件（可选，默认关闭）
+
+v0.5.0 新增标准 OpenAI TTS 端点 `GET /v1/models` 与 `POST /v1/audio/speech`（默认关闭，返回 `404`）：
+
+1. 在控制台「渲染设置 → 09 对外 OpenAI 兼容端点」打开 **启用对外 OpenAI 端点**，点击「**生成随机密钥**」并保存（留空则复用 `auth.token`）。
+2. 打开「交付」页的「**OpenAI 兼容阅读软件接入单**」，将 Base URL（如 `https://你的域名/v1` 或 `http://192.168.x.x:8291/v1`）、API Key、Model（`audiobook-tts` 或 `tts-1`）与 Voice（`alloy` 自动旁白/对话分音色）填入客户端即可。
+
 ---
 
 ## 7. 本地引擎（路线 B，可选）
@@ -352,29 +359,29 @@ sidecar 没起来时这个地址是连不上的——这很正常，它是**懒�
 
 ---
 
-## 8. 想在公网听（可选）
+## 8. 想在公网听（可选，四选一 HTTPS 方案）
 
-服务就是个普通 HTTP 后端，挂在 Cloudflare Tunnel 后面即可，不用改协议。
+手机端与大多数阅读客户端要求有效公网 TLS 证书（**严禁使用自签证书，Android 7+ 默认拒绝用户 CA**）。详细选型与防踩坑步骤请阅读 [HTTPS-GUIDE.md](HTTPS-GUIDE.md)，四条路径摘要如下：
+
+1. **A · Quick Tunnel（零域名一键启动）**：在控制台「交付」页点「一键启动 Quick Tunnel」（需已装 `cloudflared`），立即生成临时 `https://xxx.trycloudflare.com` 与扫码二维码（重启域名会变，仅作测试/个人临时分享，≤200 并发）。
+2. **B · Tailscale Funnel（零域名自用固定地址）**：本机登录后执行 `tailscale funnel --bg 8291`，将输出的 `https://<node>.ts.net` 填入「渲染设置 → 08 对外地址」。
+3. **C · 命名隧道 + 免费/自有域名（长期最稳）**：推荐 DigitalPlat FreeDomain（`.dpdns.org`/`.us.kg`/`.qzz.io`）或 `eu.org` 托管在 Cloudflare（**勿用 ClouDNS 免费子域、Freenom 或 `*.pages.dev`**），再跑 `cloudflared tunnel route dns`：
 
 ```yaml
-# NAS 上的 ~/.cloudflared/config.yml
+# ~/.cloudflared/config.yml
 ingress:
-  - hostname: tts.example.com
-    service: http://192.168.1.54:8291   # 写 Mac 的局域网 IP，别写 127.0.0.1
+  - hostname: tts.example.dpdns.org
+    service: http://127.0.0.1:8291
   - service: http_status:404
 ```
 
-```bash
-cloudflared tunnel route dns <隧道名> tts.example.com
-```
-
-然后在「渲染设置 → 传输 → 对外地址」填 `https://tts.example.com`。
-「交付」页会多出一个公网导入地址。
+然后把 `https://tts.example.dpdns.org` 填入「渲染设置 → 08 对外地址」。
+4. **D · Cloudflare Worker + KV 固定中转**：按 [deploy/cf-worker-relay/README.md](deploy/cf-worker-relay/README.md) 5 步部署 Worker，只放行听书与 OpenAI 路由（彻底屏蔽 `/api/*` 管理接口），在「设置 08」配置中转地址与 KV ID 后可自动/手动同步。
 
 **务必加一层防护**，公网裸奔的 TTS 会被人扫：
 
-1. URL 令牌（默认就有）；
-2. Cloudflare Access 服务令牌 —— 建一个 Service Token，把 Client-Id / Client-Secret
+1. URL 令牌（默认就有）或独立的 `openaiServer.apiKey`（`sk-ab-...`）；
+2. 命名隧道场景还可加 Cloudflare Access 服务令牌 —— 把 Client-Id / Client-Secret
    填进「传输 → 附加请求头」，它们会一起写进导出的引擎里：
 
 ```json
@@ -450,6 +457,8 @@ node ~/dsh-plugins/audiobook-tts-plugin/mimo-tts/bin/audiobook-tts.mjs \
 | `cache.maxEntries` | 500 | 听长书、内存紧就调小 |
 | `upstream.local.idleUnloadSeconds` | 300 | 嫌反复冷启动就调大或设 0（常驻 2.3 GB） |
 | `limits.rpm` | 100 | 上游限流比这个严时下调 |
+| `openaiServer.enabled` | false | 需要对接 Readest 等 OpenAI 客户端时开启（配合独立 `apiKey`） |
+| `tunnel.protocol` | http2 | Quick Tunnel 传输协议（国内推荐 `http2`，可选 `quic`/`auto`） |
 
 环境变量（`MIMO_API_KEY` / `MIMO_TTS_PORT` / …）只在**首次启动、还没有 config.json** 时
 当作种子。一旦配置文件存在，以文件为准——这是故意的，免得环境变量悄悄覆盖你在

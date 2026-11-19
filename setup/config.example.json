@@ -78,5 +78,31 @@
     "extraHeaders": {}
   },
   "limits": { "rpm": 100 },
-  "log": { "ring": 500 }
+  "log": { "ring": 500 },
+  "openaiServer": {
+    "enabled": false,
+    "apiKey": "",
+    "splitDialogue": true,
+    "defaultModel": "audiobook-tts",
+    "mp3Fallback": "wav",
+    "voiceMap": {
+      "alloy": "auto",
+      "nova": "auto",
+      "shimmer": "narrator",
+      "echo": "dialogue",
+      "onyx": "dialogue",
+      "fable": "narrator"
+    }
+  },
+  "tunnel": {
+    "protocol": "http2",
+    "kvSync": {
+      "enabled": false,
+      "mode": "wrangler",
+      "kvNamespaceId": "",
+      "accountId": "",
+      "keyName": "tunnel_url",
+      "publicRelayUrl": ""
+    }
+  }
 }
