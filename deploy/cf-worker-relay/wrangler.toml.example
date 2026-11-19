@@ -1,0 +1,11 @@
+name = "audiobook-tts-relay"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+KV_KEY_NAME = "tunnel_url"
+
+# 先执行 `npx wrangler kv namespace create TUNNEL_KV` 拿到真实 id 后取消下方注释并替换：
+# [[kv_namespaces]]
+# binding = "TUNNEL_KV"
+# id = "YOUR_KV_NAMESPACE_ID"

@@ -19,6 +19,8 @@ export default [
         URL: 'readonly',
         URLSearchParams: 'readonly',
         TextDecoder: 'readonly',
+        Headers: 'readonly',
+        Request: 'readonly',
         Response: 'readonly',
         clearInterval: 'readonly',
         clearTimeout: 'readonly',
