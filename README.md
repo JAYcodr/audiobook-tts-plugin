@@ -112,9 +112,9 @@ node mimo-tts/bin/audiobook-tts.mjs --port 8291 --data ./data
 1. 在左侧栏打开「听书值守」→ 顶部异常引导条可一键打开「**向导与体检**」，或在「渲染设置」按 4 大分组配置：
    - **OpenAI 兼容（如本地 Kokoro / Edge-TTS）**：渲染来源选 `OpenAI`，填 `http://127.0.0.1:8880/v1`、模型和旁白/对话音色；
    - **云端 MiMo**：渲染来源选 `云端`，直接在引擎区填 `sk-...` API Key（Key 去 <https://platform.xiaomimimo.com/> 控制台 → API Keys 创建，步骤见 [INSTALL.md](INSTALL.md) 第 5.1 节），旁白/对话支持 `preset` 预置 / `design` 文字造音 / `clone` 声音克隆及一键音色方案；
-   - **本地 Qwen3-TTS（macOS arm64）**：可直接在「向导抽屉」点击「一键安装本地引擎（支持 hf-mirror）」，装完点「一键填入并切换本地」，或手动运行 `./setup/install-local-engine.sh`。
-2. 支持随时在「**文本发音与断句规则**」调试正则清洗，并点「**试听当前草稿**」在不保存时先验证音色与断句效果；需要接入 Readest 等 OpenAI 兼容客户端时，可在「渲染设置 → 09 对外 OpenAI 兼容端点」开启 `/v1/audio/speech` 并生成独立 Bearer 密钥。
-3. 打开「交付」页可直接一键启停 **Quick Tunnel**（或按 [HTTPS-GUIDE.md](HTTPS-GUIDE.md) 选用 Tailscale Funnel / 命名隧道 / CF Worker+KV 中转），用手机直接扫**纯离线 SVG 二维码（LAN / WAN / Quick）**导入 Legado，或复制「OpenAI 兼容阅读软件接入单」。各方案要不要注册账号、去哪注册，指南每节开头都标了。
+   - **本地 Qwen3-TTS（macOS arm64）**：可直接在「向导抽屉」点击「一键安装本地引擎（支持 hf-mirror）」，装完点「一键填入并切换本地」，或手动运行 `./setup/install-local-engine.sh`。默认空闲 `1800s`（30 分钟）卸载并配合 15 分钟预热保活窗口。
+2. 内置**多音字读音纠正词表**（默认开启）与自定义规则调试器，支持参考音**交互式波形裁剪（5–15s）与 RMS 归一**，并可直接在设置页开启 **MP3 / Opus 有损压缩输出**（需本机 `ffmpeg`）与 **HTTP `ETag` / `304` 缓存协商**。
+3. 打开「交付」页可直接一键启停 **Quick Tunnel**（或按 [HTTPS-GUIDE.md](HTTPS-GUIDE.md) 选用 Tailscale Funnel / 命名隧道 / CF Worker+KV 中转），用手机直接扫**纯离线 SVG 二维码（LAN / WAN / Quick）**或生成设备独立的**只读分享令牌**安全交付亲友设备；兼容 Readest 等客户端可启用 Module 09 `/v1/audio/speech`。各方案细节见 [HTTPS-GUIDE.md](HTTPS-GUIDE.md) 与 [mimo-tts/docs/streaming-legado-compat.md](mimo-tts/docs/streaming-legado-compat.md)。
 
 详细安装、四路公网 HTTPS 方案与多场景排错请阅读 [INSTALL.md](INSTALL.md)、[HTTPS-GUIDE.md](HTTPS-GUIDE.md) 与 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)。
 

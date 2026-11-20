@@ -2,6 +2,23 @@
 
 所有显著改动均记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [未发布]
+
+### 新增
+- **按引擎拆分限速闸门（#10）**：`local` 本地引擎改用无阻塞 `NoopGate`，`mimo` 与 `openai` 各自持有独立 `RpmGate`；`hybrid` 按段来源精准路由云/本闸门，`/health`、`/api/state`、`/api/live` 新增分引擎 `rpmByProvider` 与时间线分灯显示。
+- **本地引擎默认 30 分钟驻留 + 15 分钟预热保活（#4）**：`idleUnloadSeconds` 默认由 `300s` 调整为 `1800s`，配合 `warmupWindowSeconds: 900` 保护期与 `POST /policy` 策略免重载热更；设置 02 与顶栏支持「常驻 / 省内存」一键切换。
+- **内置多音字读音纠正词表与导入导出（#5）**：新增默认启用的 14 条纯多字有声书易误读词条预设（`BUILTIN_POLYPHONE_PRESETS`，可单条禁用或整体开关），并支持 JSON / CSV 规则导入导出。
+- **只读分享令牌分级权限（#8）**：新增 `auth.readTokens`（按设备创建/吊销）与主令牌轮换 `POST /api/auth/rotate-token`；只读令牌仅放行听书与 OpenAI 路由、访问 `/api/*` 返回 `403`，`/legado.json` 与交付页自动做只读令牌隔离绝不泄露主令牌。
+- **Hybrid 真 SSE 流式冷启动降级（#13）**：Hybrid 冷启动开启 `stream=true` 时采用方案 A 优先以 MiMo `preset` 走真 SSE 抢 <1s 首包、同时触发本地预热并在本地热后切回克隆音色；支持请求断连中止 `AbortController` 与流式首段异常 0.4s 静音兜底。
+- **MP3 / Opus 有损压缩转码（#2）**：新增 `audio.format`（`wav`/`mp3`/`opus`）与 `audio.bitrate`（`32/48/64/128` kbps），基于本机 `ffmpeg` 管道零临时文件转码；`/listening` 兼容 `wav`/`mp3` 并于非 `wav` 时自动跳过流式，无 `ffmpeg` 自动回退 WAV 并附带回退响应头。
+- **HTTP 缓存响应头（#3）**：新增 `cache.httpMaxAgeSeconds`（默认 `3600`s），`/listening` 与 `/v1/audio/speech`（非流式、非回退响应）支持 `Cache-Control: private, max-age=...`、`ETag`、条件请求 `If-None-Match -> 304 Not Modified`、`X-Cache: HIT|MISS` 及 OpenAI CORS `Expose-Headers`。
+- **人话错误诊断与混推状态翻译（#6）**：新增 `hints.mjs` 将 `401/402/413/429/503/504` 映射为人话提示，通过纯 ASCII `encodeURIComponent` 写入 `X-Audiobook-Hint`（杜绝 Node 中文头崩溃）；MiMo 遇 `401/402/403/413` 或全段失败不再误返纯静音；翻译 Hybrid 英文状态码并在「交付」页展示最近异常与一键切换本地/启动按钮。
+- **Legado 流式真机验收协议（#9）**：新增 `mimo-tts/docs/streaming-legado-compat.md` 说明 `0x7fffffff` 流式头边界、本机 TTFB 对照命令与 Android Legado 真机 4 项验证清单（默认值维持 `false` 待实机复测）。
+- **参考音交互式波形裁剪（#11）**：引入 `wavesurfer.js@7.12.12`（打包进 `client.js`，运行时仍零外部请求），支持在 5–15s 黄金区间拖拽选区、原音 vs 成片 A/B 对比试听、可选 RMS 归一及 `POST/DELETE /api/refs/:id/clip` 非破坏性裁剪与恢复。
+
+### 重构
+- **子进程生命周期切换至 `execa` v9（#12）**：在 `dependencies` 引入固定版本 `execa@9.6.1`，抽取 `src/proc.mjs` 重构 `setup-manager.mjs` 与 `tunnel-manager.mjs`，使用 `cancelSignal`、POSIX 进程组级联清理与 `.iterable()` 流式行读取，杜绝后台子孙进程残留。
+
 ## [0.5.2] - 2026-11-20
 
 ### 修复

@@ -364,7 +364,7 @@ ls -lh ~/.dsh/plugin-data/mimo-tts/models/qwen3tts-0.6b-base-8bit/speech_tokeniz
 | Sidecar 脚本 | **留空**。留空就用插件自带的 `sidecar/server.py` |
 | 模型目录 | `~/.dsh/plugin-data/mimo-tts/models/qwen3tts-0.6b-base-8bit` |
 | 端口 | `8398`（默认，只绑 127.0.0.1，不对外） |
-| 空闲卸载 | `300` 秒。0 = 常驻（一直占 2.3 GB） |
+| 空闲卸载 | `1800` 秒（30 分钟，含 15 分钟预热保活窗口）。`0` = 常驻（占 ~2.3 GB 内存） |
 
 然后是参考音（模块里就叫这四个字段）：
 
@@ -500,9 +500,14 @@ node ~/dsh-plugins/audiobook-tts-plugin/mimo-tts/bin/audiobook-tts.mjs \
 | `server.port` | 8291 | 端口被占 |
 | `synth.maxSegmentChars` | 100 | 调小 → 首音更快但请求更多（上游 100 RPM）；调大 → 省请求但首段更久。范围 10–300 |
 | `synth.concurrency` | 4 | 撞 429 就降到 2 |
-| `synth.stream` | false | **别开**，除非你能接受进度条失真 |
+| `synth.stream` | false | 默认关闭（真机兼容待复测）；详见 [mimo-tts/docs/streaming-legado-compat.md](mimo-tts/docs/streaming-legado-compat.md) |
+| `audio.format` | wav | 可选 `wav` / `mp3` / `opus`（需 `ffmpeg`；Legado 仅用 `wav`/`mp3`，`opus` 仅供 OpenAI 客户端） |
+| `audio.bitrate` | 64 | `mp3`/`opus` 有损压缩码率（`32` / `48` / `64` / `128` kbps） |
 | `cache.maxEntries` | 500 | 听长书、内存紧就调小 |
-| `upstream.local.idleUnloadSeconds` | 300 | 嫌反复冷启动就调大或设 0（常驻 2.3 GB） |
+| `cache.httpMaxAgeSeconds` | 3600 | HTTP `Cache-Control: private, max-age` 与 `ETag`/`304` 校验开关（`0` = `no-store`） |
+| `upstream.local.idleUnloadSeconds` | 1800 | 默认 30 分钟；嫌反复冷启动可设 `0` 常驻，搭配 `warmupWindowSeconds: 900` 预热保活 |
+| `textRules.polyphoneEnabled` | true | 内置小说多音字读音纠正词表（仅多字词，默认开启） |
+| `auth.readTokens` | [] | 只读分享令牌列表（仅放行听书与 OpenAI 路由，`/api/*` 一律 403） |
 | `limits.rpm` | 100 | 上游限流比这个严时下调 |
 | `openaiServer.enabled` | false | 需要对接 Readest 等 OpenAI 客户端时开启（配合独立 `apiKey`） |
 | `tunnel.protocol` | http2 | Quick Tunnel 传输协议（国内推荐 `http2`，可选 `quic`/`auto`） |
