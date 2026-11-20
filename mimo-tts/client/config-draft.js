@@ -32,6 +32,7 @@ export const FIELDS = [
   { path: 'upstream.local.modelPath', label: '模型目录', module: 'local' },
   { path: 'upstream.local.port', label: '本地端口', module: 'local' },
   { path: 'upstream.local.idleUnloadSeconds', label: '空闲卸载', module: 'local' },
+  { path: 'upstream.local.warmupWindowSeconds', label: '预热保活窗口', module: 'local' },
   { path: 'upstream.local.startupTimeoutMs', label: '启动超时', module: 'local' },
   { path: 'upstream.local.requestTimeoutMs', label: '请求超时', module: 'local' },
   { path: 'upstream.local.refs.narrator.refId', label: '旁白参考音选择', module: 'local' },
@@ -51,6 +52,8 @@ export const FIELDS = [
   { path: 'voiceProfiles.active', label: '音色方案', module: 'voice' },
   { path: 'voiceProfiles.items', label: '自定义音色方案', module: 'voice' },
   { path: 'textRules.enabled', label: '启用文本规则', module: 'lexicon' },
+  { path: 'textRules.polyphoneEnabled', label: '内置多音字纠正', module: 'lexicon' },
+  { path: 'textRules.disabledPresets', label: '停用的内置词条', module: 'lexicon' },
   { path: 'textRules.items', label: '文本替换规则', module: 'lexicon' },
   { path: 'synth.maxSegmentChars', label: '每段字数', module: 'synth' },
   { path: 'synth.maxTextChars', label: '最长文本', module: 'synth' },
@@ -86,19 +89,20 @@ export const NUMERIC_FIELDS = new Set([
   'server.port', 'upstream.timeoutMs', 'upstream.maxRetry',
   'upstream.hybrid.maxCloudBootstrap', 'upstream.hybrid.cloudConcurrency', 'upstream.hybrid.targetRms',
   'upstream.openai.speed', 'upstream.openai.timeoutMs', 'upstream.openai.maxRetry',
-  'upstream.local.port', 'upstream.local.idleUnloadSeconds',
+  'upstream.local.port', 'upstream.local.idleUnloadSeconds', 'upstream.local.warmupWindowSeconds',
   'upstream.local.startupTimeoutMs', 'upstream.local.requestTimeoutMs',
   'synth.maxSegmentChars', 'synth.maxTextChars', 'synth.concurrency',
   'cache.maxEntries', 'cache.ttlSeconds', 'limits.rpm', 'log.ring',
 ])
 
 export const BOOL_FIELDS = new Set([
-  'upstream.hybrid.warmup', 'synth.stream', 'cache.enabled', 'auth.enabled', 'textRules.enabled',
+  'upstream.hybrid.warmup', 'synth.stream', 'cache.enabled', 'auth.enabled',
+  'textRules.enabled', 'textRules.polyphoneEnabled',
   'openaiServer.enabled', 'openaiServer.splitDialogue', 'tunnel.kvSync.enabled',
 ])
 
 export const ARRAY_FIELDS = new Set([
-  'voiceProfiles.items', 'textRules.items',
+  'voiceProfiles.items', 'textRules.items', 'textRules.disabledPresets',
 ])
 
 export const DEFAULT_OPENAI_VOICE_MAP = {
@@ -174,7 +178,8 @@ export function fromConfig(cfg) {
     'upstream.local.serverScript': str(lo.serverScript),
     'upstream.local.modelPath': str(lo.modelPath),
     'upstream.local.port': str(lo.port, '8398'),
-    'upstream.local.idleUnloadSeconds': str(lo.idleUnloadSeconds, '300'),
+    'upstream.local.idleUnloadSeconds': str(lo.idleUnloadSeconds, '1800'),
+    'upstream.local.warmupWindowSeconds': str(lo.warmupWindowSeconds, '900'),
     'upstream.local.startupTimeoutMs': str(lo.startupTimeoutMs, '180000'),
     'upstream.local.requestTimeoutMs': str(lo.requestTimeoutMs, '180000'),
     'upstream.local.refs.narrator.refId': str(nref.refId),
@@ -194,6 +199,8 @@ export function fromConfig(cfg) {
     'voiceProfiles.active': str(vp.active, 'builtin:story-warm'),
     'voiceProfiles.items': cloneArr(vp.items),
     'textRules.enabled': tr.enabled !== false,
+    'textRules.polyphoneEnabled': tr.polyphoneEnabled !== false,
+    'textRules.disabledPresets': cloneArr(tr.disabledPresets),
     'textRules.items': cloneArr(tr.items),
     'synth.maxSegmentChars': str(synth.maxSegmentChars, '100'),
     'synth.maxTextChars': str(synth.maxTextChars, '10000'),

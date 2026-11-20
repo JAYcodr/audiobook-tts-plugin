@@ -228,7 +228,7 @@ export class HybridProvider extends TTSProvider {
         results[i] = cached
         return
       }
-      await this.gate.acquire()
+      if (this.local?.gate) await this.local.gate.acquire()
       const wav = await engine.synthesize({ text: req.text, role: req.role })
       this.cache.set(key, wav)
       results[i] = wav
@@ -269,7 +269,8 @@ export class HybridProvider extends TTSProvider {
         results[i] = cached
         return
       }
-      await this.gate.acquire()
+      const segGate = kind === 'cloud' ? this.mimo?.gate : this.local?.gate
+      if (segGate) await segGate.acquire()
       results[i] = kind === 'cloud'
         ? await this.mimo.cloudClone(req)
         : await engine.synthesize({ text: req.text, role: req.role })

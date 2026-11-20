@@ -187,6 +187,30 @@ export function Panel() {
     }
   }, [busy, refresh, showToast])
 
+  const toggleLocalResident = useCallback(async () => {
+    if (busy) return
+    const curIdle = Number(state?.config?.upstream?.local?.idleUnloadSeconds ?? 1800)
+    const nextIdle = curIdle === 0 ? 1800 : 0
+    setBusy('local:resident')
+    try {
+      const next = await api('/config', {
+        method: 'PUT',
+        body: JSON.stringify({ upstream: { local: { idleUnloadSeconds: nextIdle } } }),
+      })
+      setState(next)
+      if (!changes.length) {
+        const nextFlat = fromConfig(next?.config)
+        setDraft(nextFlat)
+        syncedRef.current = JSON.stringify(nextFlat)
+      }
+      showToast(nextIdle === 0 ? '已切换为常驻模式（不再空闲卸载，约占 1–2.3 GB）' : '已切换为省内存模式（空闲 30 分钟后自动卸载）')
+    } catch (err) {
+      showToast(String(err?.message || err))
+    } finally {
+      setBusy('')
+    }
+  }, [busy, changes.length, showToast, state?.config])
+
   const togglePause = useCallback(() => {
     if (!running) {
       showToast('服务未运行，没有可暂停的实时数据')
@@ -281,6 +305,8 @@ export function Panel() {
     const keyHint = openaiUsesCustomKey ? '<独立 Bearer Key（见设置 09）>' : (cfg.auth?.token || '')
     let text = ''
     if (kind === 'import') text = imp.jsonUrl || ''
+    else if (kind === 'share-import') text = imp.shareBestJsonUrl || imp.sharePublicJsonUrl || imp.shareRelayJsonUrl || imp.shareQuickJsonUrl || imp.shareJsonUrl || ''
+    else if (kind === 'share-token') text = imp.shareToken || ''
     else if (kind === 'public-import') text = imp.publicJsonUrl || ''
     else if (kind === 'quick-import') text = imp.quickJsonUrl || ''
     else if (kind === 'relay-import') text = imp.relayJsonUrl || (imp.relayBaseUrl ? `${imp.relayBaseUrl}/legado.json${tokenQuery}` : '')
@@ -457,6 +483,7 @@ export function Panel() {
           items={items}
           onAct={act}
           onActLocal={actLocal}
+          onToggleResident={toggleLocalResident}
           busy={busy}
           lastSync={lastSync}
         />
@@ -473,8 +500,11 @@ export function Panel() {
         presetVoices={presetVoices}
         builtinVoiceProfiles={state?.builtinVoiceProfiles}
         builtinRulePresets={state?.builtinRulePresets}
+        builtinPolyphonePresets={state?.builtinPolyphonePresets}
         refs={state?.refs}
+        importInfo={state?.import || {}}
         onRefsChange={onRefsChange}
+        onRefreshState={refresh}
         onOpenSetup={() => setSetupOpen(true)}
         saving={saving}
         savedAt={savedAt}

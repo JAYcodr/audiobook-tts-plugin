@@ -407,21 +407,25 @@ export function TapeArea({
   )
 }
 
-export function Inspector({ running, live, service, localInfo, config, item, items, onAct, onActLocal, busy, lastSync }) {
+export function Inspector({ running, live, service, localInfo, config, item, items, onAct, onActLocal, onToggleResident, busy, lastSync }) {
   const cache = live?.cache || {}
   const today = live?.today || {}
   const lat = live?.latency || {}
+  const provider = service?.provider || config?.upstream?.provider || 'mimo'
   const rpm = live?.rpm || {}
+  const rpmByProvider = live?.rpmByProvider || null
+  const rpmUnlimited = Boolean(rpm.unlimited) || (provider === 'local' && rpm.limit == null)
+  const rpmLimit = rpmUnlimited ? null : Math.max(1, num(rpm.limit, 100))
+  const rpmText = rpmUnlimited ? `${num(rpm.used)}/∞` : `${num(rpm.used)}/${rpmLimit}`
   const hybrid = service?.hybrid || {}
   const openai = service?.openai || {}
-  const provider = service?.provider || config?.upstream?.provider || 'mimo'
   const localState = localInfo?.state || 'disabled'
   const localWarm = Boolean(localInfo?.warm) || localState === 'ready'
   const localEnabled = Boolean(localInfo?.enabled) || provider === 'local' || provider === 'hybrid'
   const cloudReady = Boolean(hybrid.cloudReady)
   const p95 = num(lat.p95)
   const cacheRatio = num(cache.maxEntries) > 0 ? clamp(num(cache.entries) / num(cache.maxEntries), 0, 1) : 0
-  const rpmRatio = clamp(num(rpm.used) / Math.max(1, num(rpm.limit, 100)), 0, 1)
+  const rpmRatio = rpmUnlimited ? 0 : clamp(num(rpm.used) / rpmLimit, 0, 1)
   const cfg = config || {}
   const ttl = cfg.cache?.ttlSeconds
 
@@ -505,11 +509,16 @@ export function Inspector({ running, live, service, localInfo, config, item, ite
         ? '卸载中…'
         : localWarm ? '卸下本地模型' : '加载本地模型'
   const localBtnDisabled = !localEnabled || localState === 'starting' || localState === 'stopping' || Boolean(busy)
+  const localIdleSec = num(localInfo?.idleUnloadSeconds ?? config?.upstream?.local?.idleUnloadSeconds, 1800)
+  const localResident = localIdleSec === 0
+  const localHoldRemain = num(localInfo?.warmHoldRemainingSec)
   const localHint = !localEnabled
     ? '当前渲染来源不使用本地引擎'
-    : localWarm
-      ? `空闲 ${num(localInfo?.idleUnloadSeconds)}s 自动卸载`
-      : `云端顶班（最多 ${num(hybrid.maxCloudBootstrap)} 段）`
+    : localResident
+      ? '常驻内存（不自动卸载 · 约 1–2.3 GB）'
+      : localWarm
+        ? (localHoldRemain > 0 ? `预热保活中（余 ${localHoldRemain}s）· 空闲 ${localIdleSec}s 卸载` : `空闲 ${localIdleSec}s 自动卸载`)
+        : `云端顶班（最多 ${num(hybrid.maxCloudBootstrap)} 段）`
   const hybridNote = hybrid.enabled
     ? (localWarm
       ? `顶班 ${num(hybrid.bootstrapCount)}/${num(hybrid.maxCloudBootstrap)} 段 · ${hybrid.lastSwitchReason || '本地已就绪'}`
@@ -568,6 +577,17 @@ export function Inspector({ running, live, service, localInfo, config, item, ite
               >
                 {localBtnText}
               </button>
+              {localEnabled && onToggleResident ? (
+                <button
+                  className={`btn btn--sm${localResident ? ' btn--tape' : ''}`}
+                  type="button"
+                  disabled={Boolean(busy)}
+                  title={localResident ? '当前常驻内存（约 1–2.3 GB），点击切回省内存（空闲 30 分钟卸载）' : '当前省内存模式，点击切为保持常驻'}
+                  onClick={onToggleResident}
+                >
+                  {localResident ? '保持常驻' : '省内存'}
+                </button>
+              ) : null}
               <span className="eng-sub">{localHint}</span>
             </div>
             <div className={`eng-row${(provider === 'openai' ? openai.ready : cloudReady) ? '' : ' off'}`}>
@@ -618,7 +638,7 @@ export function Inspector({ running, live, service, localInfo, config, item, ite
             <span>p50 <b>{latQ(lat.p50, lat.samples)}</b></span>
             <span>p95 <b>{latQ(lat.p95, lat.samples)}</b></span>
             <span>max <b>{latQ(lat.max, lat.samples)}</b></span>
-            <span>rpm <b>{`${num(rpm.used)}/${num(rpm.limit, 100)}`}</b></span>
+            <span>{rpmUnlimited ? 'local/m' : 'rpm'} <b>{rpmText}</b></span>
           </div>
         </div>
 
@@ -628,15 +648,21 @@ export function Inspector({ running, live, service, localInfo, config, item, ite
             <span className="cn">{`并发 ${num(cfg.synth?.concurrency)} · 队列 ${num(rpm.waiting)}`}</span>
           </div>
           <div className="limit-meter">
-            <span className="ml">RPM</span>
-            <span className="meter-bar"><i style={{ width: `${Math.max(1.5, rpmRatio * 100)}%` }} /></span>
-            <span className="mv">{`${num(rpm.used)} / ${num(rpm.limit, 100)}`}</span>
+            <span className="ml">{rpmUnlimited ? 'LOCAL' : 'RPM'}</span>
+            <span className="meter-bar"><i style={{ width: `${rpmUnlimited ? 0 : Math.max(1.5, rpmRatio * 100)}%` }} /></span>
+            <span className="mv">{rpmUnlimited ? `${num(rpm.used)} / ∞` : `${num(rpm.used)} / ${rpmLimit}`}</span>
           </div>
           <div className="cache-rows">
             <Rowx k="并发" v={`${num(cfg.synth?.concurrency)} 路`} />
             <Rowx k="队列" v={String(num(rpm.waiting))} />
+            {rpmByProvider ? (
+              <>
+                <Rowx k="云端 RPM" v={`${num(rpmByProvider.mimo?.used)} / ${num(rpmByProvider.mimo?.limit, 100)}`} />
+                <Rowx k="本地 60s" v={`${num(rpmByProvider.local?.used)} / ∞`} />
+              </>
+            ) : null}
             <Rowx k="缓存 TTL" v={ttlText(ttl)} />
-            <Rowx k="本地空闲卸载" v={`${num(cfg.upstream?.local?.idleUnloadSeconds)} s`} />
+            <Rowx k="本地策略" v={localResident ? '常驻 (0s)' : `省内存 (${localIdleSec}s)`} />
           </div>
         </div>
       </div>

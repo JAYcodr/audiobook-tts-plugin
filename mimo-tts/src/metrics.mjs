@@ -33,12 +33,13 @@ export class RpmGate {
   /** 等到有配额再放行；返回等待毫秒数 */
   async acquire() {
     const rpm = Math.max(1, Number(this.getRpm()) || 100)
+    const started = Date.now()
     while (true) {
       const now = Date.now()
       this.stamps = this.stamps.filter((t) => now - t < 60_000)
       if (this.stamps.length < rpm) {
         this.stamps.push(now)
-        return 0
+        return now - started
       }
       this.waiting++
       const wait = 60_000 - (now - this.stamps[0]) + 10
@@ -53,7 +54,37 @@ export class RpmGate {
   usage() {
     const now = Date.now()
     this.stamps = this.stamps.filter((t) => now - t < 60_000)
-    return { used: this.stamps.length, limit: Math.max(1, Number(this.getRpm()) || 100), waiting: this.waiting }
+    return {
+      used: this.stamps.length,
+      limit: Math.max(1, Number(this.getRpm()) || 100),
+      waiting: this.waiting,
+      unlimited: false,
+    }
+  }
+}
+
+/** 无限额闸门（本地 Qwen3-TTS 专用）：只统计近 60 秒吞吐，绝不按云端 RPM 排队。 */
+export class NoopGate {
+  constructor() {
+    this.stamps = []
+  }
+
+  async acquire() {
+    const now = Date.now()
+    this.stamps = this.stamps.filter((t) => now - t < 60_000)
+    this.stamps.push(now)
+    return 0
+  }
+
+  usage() {
+    const now = Date.now()
+    this.stamps = this.stamps.filter((t) => now - t < 60_000)
+    return {
+      used: this.stamps.length,
+      limit: null,
+      waiting: 0,
+      unlimited: true,
+    }
   }
 }
 

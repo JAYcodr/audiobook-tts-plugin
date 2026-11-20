@@ -52,11 +52,18 @@ function extractBearerToken(req) {
 }
 
 function authorizeOpenAiRequest(req, cfg) {
-  const customKey = String(cfg.openaiServer?.apiKey || '').trim()
-  const expected = customKey || String(cfg.auth?.token || '').trim()
   const provided = extractBearerToken(req)
-  if (!expected || !provided) return false
-  return safeEqual(provided, expected)
+  if (!provided) return false
+  const customKey = String(cfg.openaiServer?.apiKey || '').trim()
+  if (customKey) return safeEqual(provided, customKey)
+  const adminToken = String(cfg.auth?.token || '').trim()
+  if (adminToken && safeEqual(provided, adminToken)) return true
+  const readTokens = Array.isArray(cfg.auth?.readTokens) ? cfg.auth.readTokens : []
+  let matchedRead = false
+  for (const rt of readTokens) {
+    if (rt?.token && safeEqual(provided, rt.token)) matchedRead = true
+  }
+  return matchedRead
 }
 
 function mapSpeed(rawSpeed) {

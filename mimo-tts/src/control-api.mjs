@@ -3,11 +3,11 @@
  * 由独立 HTTP 服务（service.mjs）和 DSH 插件宿主（index.js）共同挂载，保证行为完全一致。
  */
 import { randomBytes } from 'node:crypto'
-import { authorized } from './auth.mjs'
+import { resolveAuth } from './auth.mjs'
 import { BUILTIN_VOICE_PROFILES, PRESET_VOICES, redact, validatePatch } from './config.mjs'
 import { HttpInputError, readJson, sendJson } from './http.mjs'
 import { buildImportInfo } from './legado.mjs'
-import { BUILTIN_RULE_PRESETS, previewTextPipeline, validateTextRules } from './lexicon.mjs'
+import { BUILTIN_POLYPHONE_PRESETS, BUILTIN_RULE_PRESETS, previewTextPipeline, validateTextRules } from './lexicon.mjs'
 import { RefError } from './refs-store.mjs'
 import { SetupError, runDoctor } from './setup-manager.mjs'
 import { TunnelError, detectHttpsTools } from './tunnel-manager.mjs'
@@ -21,7 +21,8 @@ export function buildStatePayload(service, req) {
     config: redact(cfg),
     local: service.local.status(),
     live: {
-      rpm: service.gate.usage(),
+      rpm: service.activeGate().usage(),
+      rpmByProvider: service.rpmUsageByProvider(),
       cache: service.cache.stats(),
       local: service.local.status(),
       ...service.metrics.snapshot(),
@@ -31,6 +32,7 @@ export function buildStatePayload(service, req) {
     presetVoices: PRESET_VOICES,
     builtinVoiceProfiles: BUILTIN_VOICE_PROFILES,
     builtinRulePresets: BUILTIN_RULE_PRESETS,
+    builtinPolyphonePresets: BUILTIN_POLYPHONE_PRESETS,
     refs: service.refs.list(),
     setupSummary: service.setup.quickSummary(),
     providers: service.registry.list().map((p) => p.status()),
@@ -46,9 +48,16 @@ export function buildStatePayload(service, req) {
  */
 export function createControlHandler({ service, requireAuth = false }) {
   return async function handleControlApi(req, res, path, url) {
-    if (requireAuth && !authorized(req, url, service.config.auth)) {
-      sendJson(res, 401, { error: '需要鉴权' }, { basic: true })
-      return true
+    if (requireAuth) {
+      const authRes = resolveAuth(req, url, service.config.auth)
+      if (!authRes.ok) {
+        sendJson(res, 401, { error: '需要鉴权' }, { basic: true })
+        return true
+      }
+      if (authRes.role === 'read') {
+        sendJson(res, 403, { error: '只读分享令牌无权访问管理接口（/api/*）' })
+        return true
+      }
     }
 
     if (path === '/api/state' && req.method === 'GET') {
@@ -59,7 +68,8 @@ export function createControlHandler({ service, requireAuth = false }) {
     if (path === '/api/live' && req.method === 'GET') {
       sendJson(res, 200, {
         service: service.info(),
-        rpm: service.gate.usage(),
+        rpm: service.activeGate().usage(),
+        rpmByProvider: service.rpmUsageByProvider(),
         cache: service.cache.stats(),
         local: service.local.status(),
         ...service.metrics.snapshot(),
@@ -70,7 +80,8 @@ export function createControlHandler({ service, requireAuth = false }) {
     if (path === '/api/stats' && req.method === 'GET') {
       sendJson(res, 200, {
         cache: service.cache.stats(),
-        rpm: service.gate.usage(),
+        rpm: service.activeGate().usage(),
+        rpmByProvider: service.rpmUsageByProvider(),
         local: service.local.status(),
         ...service.metrics.snapshot(),
       })
@@ -267,9 +278,71 @@ export function createControlHandler({ service, requireAuth = false }) {
     if (path.startsWith('/api/tunnel/') || path === '/api/openai-server/gen-key') {
       return handleTunnelAndOpenAiRoutes(service, req, res, path, url)
     }
+    if (path.startsWith('/api/auth/')) {
+      return handleAuthTokenRoutes(service, req, res, path)
+    }
 
     return false
   }
+}
+
+async function handleAuthTokenRoutes(service, req, res, path) {
+  if (path === '/api/auth/read-tokens' && req.method === 'POST') {
+    let body
+    try {
+      body = await readJson(req, 20_000)
+    } catch (err) {
+      sendJson(res, err instanceof HttpInputError ? err.status : 400, { error: err.message })
+      return true
+    }
+    const label = String(body?.label || '').trim().slice(0, 80) || '分享设备'
+    const item = {
+      id: `rt:${randomBytes(4).toString('hex')}`,
+      label,
+      token: `rt_${randomBytes(12).toString('base64url')}`,
+      createdAt: Date.now(),
+    }
+    const existing = Array.isArray(service.config.auth?.readTokens) ? service.config.auth.readTokens : []
+    const result = await service.applyPatch({ auth: { readTokens: [...existing, item] } })
+    if (result.problems?.length) {
+      sendJson(res, 422, { error: result.problems.join('；'), problems: result.problems })
+      return true
+    }
+    sendJson(res, 201, { item, ...buildStatePayload(service, req) })
+    return true
+  }
+
+  const delMatch = /^\/api\/auth\/read-tokens\/([^/]+)$/.exec(path)
+  if (delMatch && req.method === 'DELETE') {
+    const id = decodeURIComponent(delMatch[1])
+    const existing = Array.isArray(service.config.auth?.readTokens) ? service.config.auth.readTokens : []
+    const next = existing.filter((rt) => rt?.id !== id)
+    if (next.length === existing.length) {
+      sendJson(res, 404, { error: `未找到只读令牌：${id}` })
+      return true
+    }
+    const result = await service.applyPatch({ auth: { readTokens: next } })
+    if (result.problems?.length) {
+      sendJson(res, 422, { error: result.problems.join('；'), problems: result.problems })
+      return true
+    }
+    sendJson(res, 200, { ok: true, id, ...buildStatePayload(service, req) })
+    return true
+  }
+
+  if (path === '/api/auth/rotate-token' && req.method === 'POST') {
+    const nextToken = randomBytes(9).toString('base64url')
+    const result = await service.applyPatch({ auth: { token: nextToken } })
+    if (result.problems?.length) {
+      sendJson(res, 422, { error: result.problems.join('；'), problems: result.problems })
+      return true
+    }
+    sendJson(res, 200, { ok: true, token: nextToken, ...buildStatePayload(service, req) })
+    return true
+  }
+
+  sendJson(res, 405, { error: 'method not allowed' })
+  return true
 }
 
 async function handleTunnelAndOpenAiRoutes(service, req, res, path, url) {

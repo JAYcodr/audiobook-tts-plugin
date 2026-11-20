@@ -77,7 +77,7 @@ export class TTSProvider {
         results[i] = cached
         return
       }
-      await this.gate.acquire()
+      if (this.gate) await this.gate.acquire()
       let wav
       try {
         wav = await this.synthesizeSegment(req, ctx)

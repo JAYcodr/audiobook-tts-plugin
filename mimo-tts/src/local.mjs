@@ -123,6 +123,7 @@ export class LocalEngine {
     this.requests = 0
     this.warm = false
     this.warming = null
+    this.warmStartedAt = 0
     this.warmError = ''
     this.warmRetryAt = 0
     this.processGeneration = 0
@@ -147,13 +148,26 @@ export class LocalEngine {
     return this.getConfig().upstream?.local || {}
   }
 
+  warmHoldUntil() {
+    const w = Math.max(0, Number(this.cfg().warmupWindowSeconds ?? 900) || 0)
+    if (!this.warmStartedAt || w <= 0) return 0
+    return this.warmStartedAt + w * 1000
+  }
+
   status() {
     const cfg = this.cfg()
     const enabled = this.provider() === 'local' || this.provider() === 'hybrid'
+    const idle = Math.max(0, Number(cfg.idleUnloadSeconds) || 0)
+    const warmWindow = Math.max(0, Number(cfg.warmupWindowSeconds ?? 900) || 0)
+    const holdUntil = this.warmHoldUntil()
+    const holdRemainSec = this.state === 'ready' && holdUntil > Date.now()
+      ? Math.ceil((holdUntil - Date.now()) / 1000)
+      : 0
     return {
       provider: this.provider(),
       enabled,
       state: enabled ? this.state : 'disabled',
+      mode: idle === 0 ? 'resident' : 'powersave',
       pid: this.pid,
       port: this.port,
       lastUsed: this.lastUsed || null,
@@ -165,7 +179,9 @@ export class LocalEngine {
       warmError: this.warmError || '',
       rssMb: this.rssMb,
       loadS: this.loadS,
-      idleUnloadSeconds: Number(cfg.idleUnloadSeconds) || 0,
+      idleUnloadSeconds: idle,
+      warmupWindowSeconds: warmWindow,
+      warmHoldRemainingSec: holdRemainSec,
     }
   }
 
@@ -191,6 +207,7 @@ export class LocalEngine {
   async #start() {
     this.processGeneration++
     this.warm = false
+    this.warmStartedAt = 0
     this.warmError = ''
     this.warmRetryAt = 0
     // 上一次进程如果还挂在 error/stopped 状态，先清掉；不能走 stop()，
@@ -228,7 +245,8 @@ export class LocalEngine {
     const pythonPath = expandHomePath(cfg.pythonPath)
     const modelPath = expandHomePath(cfg.modelPath)
     const idle = Math.max(0, Number(cfg.idleUnloadSeconds) || 0)
-    const fallbackIdle = idle > 0 ? idle + 30 : 0
+    const warmWindow = Math.max(0, Number(cfg.warmupWindowSeconds ?? 900) || 0)
+    const fallbackIdle = idle > 0 ? Math.max(idle, warmWindow) + 60 : 0
     const args = [
       script,
       '--model', modelPath,
@@ -403,6 +421,7 @@ export class LocalEngine {
       }
       this.requests++
       if (markWarm) {
+        if (!this.warmStartedAt) this.warmStartedAt = Date.now()
         this.warm = true
         this.warmError = ''
         this.warmRetryAt = 0
@@ -451,6 +470,7 @@ export class LocalEngine {
         await this.synthesize({ text: text || '预热一下。', role, markWarm: false })
         if (gen !== this.processGeneration) return false
         this.warm = true
+        if (!this.warmStartedAt) this.warmStartedAt = Date.now()
         this.warmError = ''
         this.warmRetryAt = 0
         this.log('[local] 预热完成')
@@ -499,6 +519,7 @@ export class LocalEngine {
     this.lastStopReason = reason
     this.processGeneration++
     this.warm = false
+    this.warmStartedAt = 0
     this.warmError = ''
     this.warmRetryAt = 0
     this.stopping = true
@@ -534,15 +555,49 @@ export class LocalEngine {
 
   // ───────────────────── 内部 ─────────────────────
 
+  /** 同步最新空闲策略到运行中的 sidecar（切常驻/省内存时不重启重载模型）。 */
+  async syncIdlePolicy() {
+    if (!this.proc || this.state !== 'ready' || !this.port) return false
+    const cfg = this.cfg()
+    const idle = Math.max(0, Number(cfg.idleUnloadSeconds) || 0)
+    const warmWindow = Math.max(0, Number(cfg.warmupWindowSeconds ?? 900) || 0)
+    const fallbackIdle = idle > 0 ? Math.max(idle, warmWindow) + 60 : 0
+    try {
+      const res = await fetch(`http://127.0.0.1:${this.port}/policy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idle_timeout: fallbackIdle }),
+        signal: AbortSignal.timeout(2000),
+      })
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+
+  async checkIdleUnload(now = Date.now()) {
+    const p = this.provider()
+    if (p !== 'local' && p !== 'hybrid') return false
+    const cfg = this.cfg()
+    const idle = Math.max(0, Number(cfg.idleUnloadSeconds) || 0)
+    const holdUntil = this.warmHoldUntil()
+    if (
+      this.state === 'ready'
+      && idle > 0
+      && this.active === 0
+      && (now - this.lastUsed > idle * 1000)
+      && now >= holdUntil
+    ) {
+      await this.stop('idle')
+      return true
+    }
+    return false
+  }
+
   async #tick() {
     const p = this.provider()
     if (p !== 'local' && p !== 'hybrid') return
-    const cfg = this.cfg()
-    const idle = Math.max(0, Number(cfg.idleUnloadSeconds) || 0)
-    if (this.state === 'ready' && idle > 0 && this.active === 0 && Date.now() - this.lastUsed > idle * 1000) {
-      await this.stop('idle')
-      return
-    }
+    if (await this.checkIdleUnload()) return
     if (this.state === 'ready' && Date.now() - this.lastHealthAt > 15_000) {
       try {
         const res = await fetch(`http://127.0.0.1:${this.port}/health`, { signal: AbortSignal.timeout(2000) })

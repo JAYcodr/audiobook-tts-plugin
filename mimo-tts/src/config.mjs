@@ -24,6 +24,8 @@ export const DEFAULTS = {
     // URL token：Legado 的导入契约里没法塞 Basic 头，所以鉴权走一个可拼进 URL 的令牌。
     // 首次启动自动生成，用户不用理解它。
     token: '',
+    // 只读分享令牌：仅允许 /listening、/legado.json 与 OpenAI 合成端点，访问 /api/* 一律 403。
+    readTokens: [],
   },
   upstream: {
     // mimo = 小米云 API；local = 本机 Qwen3-TTS sidecar；hybrid = 混合启动；openai = OpenAI 兼容 TTS (/v1/audio/speech)
@@ -52,13 +54,14 @@ export const DEFAULTS = {
       targetRms: 0.126,
       warmup: true,
     },
-    // 本地引擎。模型不常驻：第一次请求才拉起，空闲 idleUnloadSeconds 秒后杀掉。
+    // 本地引擎：默认闲置 30 分钟（1800s）卸载释放 ~2.3GB 内存；设为 0 则常驻。
     local: {
       pythonPath: '',
       serverScript: '',
       modelPath: '',
       port: 8398,
-      idleUnloadSeconds: 300,
+      idleUnloadSeconds: 1800,
+      warmupWindowSeconds: 900,
       startupTimeoutMs: 180000,
       requestTimeoutMs: 180000,
       refs: {
@@ -78,6 +81,8 @@ export const DEFAULTS = {
   },
   textRules: {
     enabled: true,
+    polyphoneEnabled: true,
+    disabledPresets: [],
     items: [],
   },
   synth: {
@@ -270,13 +275,45 @@ export function sanitizeConfigPatch(patch, currentConfig) {
     }
   }
 
-  if (cleanPatch.auth && typeof cleanPatch.auth === 'object' && typeof cleanPatch.auth.pass === 'string') {
-    if (isMaskedSecret(cleanPatch.auth.pass)) {
+  if (cleanPatch.auth && typeof cleanPatch.auth === 'object') {
+    if (typeof cleanPatch.auth.pass === 'string' && isMaskedSecret(cleanPatch.auth.pass)) {
       const existingPass = String(currentConfig?.auth?.pass || '')
       if (existingPass && (cleanPatch.auth.pass === '••••••' || cleanPatch.auth.pass === '••••')) {
         delete cleanPatch.auth.pass
       } else {
         problems.push('auth.pass 包含无效的掩码字符，请重新输入完整口令')
+      }
+    }
+    if (typeof cleanPatch.auth.token === 'string' && isMaskedSecret(cleanPatch.auth.token)) {
+      if (currentConfig?.auth?.token) delete cleanPatch.auth.token
+      else problems.push('auth.token 包含无效的掩码字符，请填写完整令牌')
+    }
+    if ('readTokens' in cleanPatch.auth) {
+      const rawRead = cleanPatch.auth.readTokens
+      if (!Array.isArray(rawRead)) {
+        problems.push('auth.readTokens 必须是数组')
+      } else {
+        const existingRead = Array.isArray(currentConfig?.auth?.readTokens) ? currentConfig.auth.readTokens : []
+        const byId = new Map(existingRead.filter((r) => r && r.id).map((r) => [r.id, r]))
+        const resolved = []
+        for (const item of rawRead) {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) {
+            problems.push('auth.readTokens 元素必须是对象')
+            continue
+          }
+          const copy = { ...item }
+          if (typeof copy.token === 'string' && isMaskedSecret(copy.token)) {
+            const matched = byId.get(copy.id)
+            if (matched?.token) {
+              copy.token = matched.token
+            } else {
+              problems.push(`auth.readTokens[${copy.label || copy.id || '?'}] 包含无效掩码令牌，请重新生成`)
+              continue
+            }
+          }
+          resolved.push(copy)
+        }
+        cleanPatch.auth.readTokens = resolved
       }
     }
   }
@@ -312,6 +349,7 @@ const ENV_KEYS = {
   'LOCAL_MODEL': (c, v) => { c.upstream.local.modelPath = v },
   'LOCAL_PORT': (c, v) => { c.upstream.local.port = Number(v) },
   'LOCAL_IDLE_SECONDS': (c, v) => { c.upstream.local.idleUnloadSeconds = Number(v) },
+  'LOCAL_WARMUP_WINDOW_SECONDS': (c, v) => { c.upstream.local.warmupWindowSeconds = Number(v) },
   'HYBRID_MAX_BOOTSTRAP': (c, v) => { c.upstream.hybrid.maxCloudBootstrap = Number(v) },
   'HYBRID_TARGET_RMS': (c, v) => { c.upstream.hybrid.targetRms = Number(v) },
   'LOCAL_REFS_JSON': (c, v) => {
@@ -436,6 +474,10 @@ export function validate(cfg, ctx = {}) {
     if (!Number.isInteger(lp) || lp < 1 || lp > 65535) problems.push('本地引擎端口必须是 1–65535')
     const idle = Number(local.idleUnloadSeconds)
     if (!Number.isFinite(idle) || idle < 0 || idle > 86400) problems.push('本地引擎空闲卸载必须是 0–86400 秒')
+    const warmWin = Number(local.warmupWindowSeconds ?? 900)
+    if (!Number.isFinite(warmWin) || warmWin < 0 || warmWin > 86400) {
+      problems.push('本地引擎预热保活窗口必须是 0–86400 秒')
+    }
   }
   if (provider === 'hybrid') {
     const h = cfg.upstream?.hybrid || {}
@@ -484,6 +526,34 @@ export function validate(cfg, ctx = {}) {
             problems.push('tunnel.kvSync.publicRelayUrl 必须留空或以 https:// 开头')
           }
         }
+      }
+    }
+  }
+  if (cfg.auth?.readTokens !== undefined) {
+    if (!Array.isArray(cfg.auth.readTokens)) {
+      problems.push('auth.readTokens 必须是数组')
+    } else {
+      const seenIds = new Set()
+      const seenTokens = new Set()
+      const adminToken = String(cfg.auth?.token || '')
+      for (let idx = 0; idx < cfg.auth.readTokens.length; idx++) {
+        const rt = cfg.auth.readTokens[idx]
+        const label = `auth.readTokens[${idx}]`
+        if (!rt || typeof rt !== 'object' || Array.isArray(rt)) {
+          problems.push(`${label} 必须是对象`)
+          continue
+        }
+        const id = String(rt.id || '').trim()
+        const rtLabel = String(rt.label || '').trim()
+        const tok = String(rt.token || '').trim()
+        if (!id) problems.push(`${label}.id 不能为空`)
+        else if (seenIds.has(id)) problems.push(`${label}.id 重复：${id}`)
+        else seenIds.add(id)
+        if (!rtLabel || rtLabel.length > 80) problems.push(`${label}.label 必须为 1–80 字`)
+        if (!tok || tok.length < 6) problems.push(`${label}.token 至少 6 个字符`)
+        else if (adminToken && tok === adminToken) problems.push(`${label}.token 不能与主管理令牌相同`)
+        else if (seenTokens.has(tok)) problems.push(`${label}.token 不能重复`)
+        else seenTokens.add(tok)
       }
     }
   }
@@ -565,7 +635,16 @@ export function redact(cfg) {
         }
         : undefined,
     },
-    auth: { ...cfg.auth, pass: cfg.auth.pass ? '••••••' : '' },
+    auth: {
+      ...cfg.auth,
+      pass: cfg.auth.pass ? '••••••' : '',
+      readTokens: Array.isArray(cfg.auth?.readTokens)
+        ? cfg.auth.readTokens.map((rt) => ({
+          ...rt,
+          token: rt?.token ? '••••••' : '',
+        }))
+        : [],
+    },
     openaiServer: cfg.openaiServer
       ? {
         ...cfg.openaiServer,

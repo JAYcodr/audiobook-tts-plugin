@@ -20,6 +20,7 @@ const ALLOWED_FLAGS = new Set(['g', 'i', 'm', 'u'])
 export const BUILTIN_RULE_PRESETS = [
   {
     id: 'preset:strip-ps',
+    category: 'cleanup',
     name: '过滤章末 PS 作者附言',
     pattern: '^(?:PS|P\\.S\\.|作者的话)[：:].*$',
     replace: '',
@@ -30,6 +31,7 @@ export const BUILTIN_RULE_PRESETS = [
   },
   {
     id: 'preset:strip-separators',
+    category: 'cleanup',
     name: '清洗装饰性分割线（==== / ---- / ****）',
     pattern: '[=\\-*~]{4,}',
     replace: '',
@@ -40,6 +42,7 @@ export const BUILTIN_RULE_PRESETS = [
   },
   {
     id: 'preset:strip-bracket-ads',
+    category: 'cleanup',
     name: '过滤【求月票/求推荐】互动标签',
     pattern: '【(?:求月票|求推荐|求收藏|求订阅|求打赏)[^】]{0,20}】',
     replace: '',
@@ -50,6 +53,7 @@ export const BUILTIN_RULE_PRESETS = [
   },
   {
     id: 'preset:rpg-level',
+    category: 'cleanup',
     name: '英文缩写朗读修正（Lv. → 等级）',
     pattern: '\\bLv\\.?\\s*',
     replace: '等级 ',
@@ -58,6 +62,27 @@ export const BUILTIN_RULE_PRESETS = [
     scope: 'all',
     enabled: true,
   },
+]
+
+/**
+ * 内置多音字/常用词读音纠正词表：严格按词不按字，防止单字上下文误伤。
+ * 默认启用（textRules.polyphoneEnabled !== false），支持按条目停用或导出/改写。
+ */
+export const BUILTIN_POLYPHONE_PRESETS = [
+  { id: 'poly:chanyu', category: 'pronunciation', name: '单于 → 蝉于 (chán yú)', pattern: '单于', replace: '蝉于', regex: false, scope: 'all', enabled: true },
+  { id: 'poly:kehan', category: 'pronunciation', name: '可汗 → 克寒 (kè hán)', pattern: '可汗', replace: '克寒', regex: false, scope: 'all', enabled: true },
+  { id: 'poly:tubo', category: 'pronunciation', name: '吐蕃 → 吐播 (tǔ bō)', pattern: '吐蕃', replace: '吐播', regex: false, scope: 'all', enabled: true },
+  { id: 'poly:xuepo', category: 'pronunciation', name: '血泊 → 血坡 (xuè pō)', pattern: '血泊', replace: '血坡', regex: false, scope: 'all', enabled: true },
+  { id: 'poly:yanhong', category: 'pronunciation', name: '殷红 → 烟红 (yān hóng)', pattern: '殷红', replace: '烟红', regex: false, scope: 'all', enabled: true },
+  { id: 'poly:junlie', category: 'pronunciation', name: '龟裂 → 军裂 (jūn liè)', pattern: '龟裂', replace: '军裂', regex: false, scope: 'all', enabled: true },
+  { id: 'poly:zhongchuang', category: 'pronunciation', name: '重创 → 重疮 (zhòng chuāng)', pattern: '重创', replace: '重疮', regex: false, scope: 'all', enabled: true },
+  { id: 'poly:chuangshang', category: 'pronunciation', name: '创伤 → 疮伤 (chuāng shāng)', pattern: '创伤', replace: '疮伤', regex: false, scope: 'all', enabled: true },
+  { id: 'poly:manyuan', category: 'pronunciation', name: '埋怨 → 瞒怨 (mán yuàn)', pattern: '埋怨', replace: '瞒怨', regex: false, scope: 'all', enabled: true },
+  { id: 'poly:youshui', category: 'pronunciation', name: '游说 → 游税 (yóu shuì)', pattern: '游说', replace: '游税', regex: false, scope: 'all', enabled: true },
+  { id: 'poly:baoza', category: 'pronunciation', name: '包扎 → 包匝 (bāo zā)', pattern: '包扎', replace: '包匝', regex: false, scope: 'all', enabled: true },
+  { id: 'poly:bianyi', category: 'pronunciation', name: '便宜行事 → 便易行事', pattern: '便宜行事', replace: '便易行事', regex: false, scope: 'all', enabled: true },
+  { id: 'poly:jiyu', category: 'pronunciation', name: '给予 → 己宇 (jǐ yǔ)', pattern: '给予', replace: '己宇', regex: false, scope: 'all', enabled: true },
+  { id: 'poly:nvgong', category: 'pronunciation', name: '女红 → 女工 (nǚ gōng)', pattern: '女红', replace: '女工', regex: false, scope: 'all', enabled: true },
 ]
 
 function readQuantifier(pattern, start) {
@@ -152,6 +177,9 @@ export function validateTextRules(textRules) {
   if (typeof textRules !== 'object' || Array.isArray(textRules)) {
     return ['textRules 必须是对象']
   }
+  if (textRules.disabledPresets !== undefined && !Array.isArray(textRules.disabledPresets)) {
+    problems.push('textRules.disabledPresets 必须是数组')
+  }
   if (textRules.items === undefined) return problems
   if (!Array.isArray(textRules.items)) {
     return ['textRules.items 必须是数组']
@@ -204,9 +232,21 @@ export function validateTextRules(textRules) {
   return problems
 }
 
+function effectiveRuleItems(textRules) {
+  const customItems = Array.isArray(textRules?.items) ? textRules.items : []
+  if (!textRules?.polyphoneEnabled) return customItems
+  const disabled = new Set(Array.isArray(textRules.disabledPresets) ? textRules.disabledPresets : [])
+  const customPatterns = new Set(customItems.map((it) => `${it?.scope || 'all'}|${it?.pattern || ''}`))
+  const builtins = BUILTIN_POLYPHONE_PRESETS.filter(
+    (p) => !disabled.has(p.id) && !customPatterns.has(`${p.scope || 'all'}|${p.pattern}`),
+  )
+  // 用户自定义规则在前，内置读音词表补充其后，用户对同词的自定义覆盖优先生效
+  return [...customItems, ...builtins]
+}
+
 function compileRules(textRules, targetScopes) {
   if (!textRules || textRules.enabled === false) return []
-  const items = Array.isArray(textRules.items) ? textRules.items : []
+  const items = effectiveRuleItems(textRules)
   const compiled = []
   for (const it of items) {
     if (!it || it.enabled === false) continue
@@ -282,4 +322,142 @@ export function previewTextPipeline(text, { textRules, maxSegmentChars = 100 } =
       dialogueCount: segments.filter((s) => s.role === 'dialogue').length,
     },
   }
+}
+
+/** 导出规则为 JSON 字符串（脱去临时 UI 字段）。 */
+export function exportRulesJson(items = []) {
+  const clean = (Array.isArray(items) ? items : []).map((it) => ({
+    id: it.id || undefined,
+    name: String(it.name || ''),
+    pattern: String(it.pattern || ''),
+    replace: String(it.replace ?? ''),
+    regex: Boolean(it.regex),
+    flags: it.regex ? String(it.flags || 'g') : undefined,
+    scope: it.scope || 'all',
+    enabled: it.enabled !== false,
+  }))
+  return JSON.stringify(clean, null, 2)
+}
+
+function csvCell(v) {
+  const s = String(v ?? '')
+  return /[",\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s
+}
+
+/** 导出规则为标准 CSV（含表头）。 */
+export function exportRulesCsv(items = []) {
+  const header = 'name,pattern,replace,scope,regex,flags,enabled'
+  const lines = (Array.isArray(items) ? items : []).map((it) => [
+    csvCell(it.name || ''),
+    csvCell(it.pattern || ''),
+    csvCell(it.replace ?? ''),
+    csvCell(it.scope || 'all'),
+    csvCell(Boolean(it.regex)),
+    csvCell(it.regex ? (it.flags || 'g') : ''),
+    csvCell(it.enabled !== false),
+  ].join(','))
+  return [header, ...lines].join('\n')
+}
+
+function parseCsvLine(line) {
+  const out = []
+  let cur = ''
+  let inQuotes = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') {
+        cur += '"'
+        i++
+      } else if (ch === '"') {
+        inQuotes = false
+      } else {
+        cur += ch
+      }
+    } else if (ch === '"') {
+      inQuotes = true
+    } else if (ch === ',') {
+      out.push(cur)
+      cur = ''
+    } else {
+      cur += ch
+    }
+  }
+  out.push(cur)
+  return out
+}
+
+/**
+ * 从 JSON 或 CSV 文本解析并校验规则列表；校验失败直接抛错，避免脏规则进入配置。
+ * @returns {{items:Array, problems:string[]}}
+ */
+export function importRulesFromText(rawText, format = 'auto') {
+  const text = String(rawText ?? '').trim()
+  if (!text) return { items: [], problems: ['导入内容为空'] }
+  const mode = format === 'auto'
+    ? (text.startsWith('[') || text.startsWith('{') ? 'json' : 'csv')
+    : String(format).toLowerCase()
+
+  let parsed = []
+  if (mode === 'json') {
+    let data
+    try {
+      data = JSON.parse(text)
+    } catch (err) {
+      return { items: [], problems: [`JSON 解析失败：${err.message}`] }
+    }
+    const rawItems = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : null)
+    if (!rawItems) return { items: [], problems: ['JSON 必须是规则数组或含 items 字段的对象'] }
+    parsed = rawItems.map((it, idx) => ({
+      id: String(it?.id || `rule:imp-${Date.now().toString(36)}-${idx}`),
+      name: String(it?.name || `导入规则 ${idx + 1}`),
+      pattern: String(it?.pattern ?? ''),
+      replace: String(it?.replace ?? ''),
+      regex: Boolean(it?.regex),
+      flags: it?.regex ? String(it?.flags || 'g') : 'g',
+      scope: String(it?.scope || 'all'),
+      enabled: it?.enabled !== false,
+    }))
+  } else {
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    if (!lines.length) return { items: [], problems: ['CSV 内容为空'] }
+    const firstCols = parseCsvLine(lines[0]).map((c) => c.trim().toLowerCase())
+    const hasHeader = firstCols.includes('pattern') && firstCols.includes('replace')
+    const colIndex = hasHeader
+      ? {
+        name: firstCols.indexOf('name'),
+        pattern: firstCols.indexOf('pattern'),
+        replace: firstCols.indexOf('replace'),
+        scope: firstCols.indexOf('scope'),
+        regex: firstCols.indexOf('regex'),
+        flags: firstCols.indexOf('flags'),
+        enabled: firstCols.indexOf('enabled'),
+      }
+      : { name: 0, pattern: 1, replace: 2, scope: 3, regex: 4, flags: 5, enabled: 6 }
+    const startIdx = hasHeader ? 1 : 0
+    for (let i = startIdx; i < lines.length; i++) {
+      const cols = parseCsvLine(lines[i])
+      const getCol = (idx, def = '') => (idx >= 0 && idx < cols.length ? cols[idx] : def)
+      const pattern = getCol(colIndex.pattern, '')
+      const replace = getCol(colIndex.replace, '')
+      const name = getCol(colIndex.name, '') || (pattern ? `${pattern} → ${replace}` : '')
+      const scope = getCol(colIndex.scope, 'all').trim() || 'all'
+      const regexRaw = getCol(colIndex.regex, 'false').trim().toLowerCase()
+      const flags = getCol(colIndex.flags, 'g').trim() || 'g'
+      const enabledRaw = getCol(colIndex.enabled, 'true').trim().toLowerCase()
+      parsed.push({
+        id: `rule:csv-${Date.now().toString(36)}-${i}`,
+        name,
+        pattern,
+        replace,
+        scope,
+        regex: ['1', 'true', 'yes'].includes(regexRaw),
+        flags,
+        enabled: !['0', 'false', 'no'].includes(enabledRaw),
+      })
+    }
+  }
+
+  const problems = validateTextRules({ items: parsed })
+  return { items: problems.length ? [] : parsed, problems }
 }

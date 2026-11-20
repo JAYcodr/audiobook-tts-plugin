@@ -248,6 +248,12 @@ class Handler(BaseHTTPRequestHandler):
                 threading.Timer(0.2, os._exit, [0]).start()
                 return
 
+            if self.path.startswith("/policy"):
+                with self.engine.active_lock:
+                    if "idle_timeout" in body:
+                        self.engine.args.idle_timeout = max(0, int(body["idle_timeout"]))
+                return self._json(200, {"ok": True, "idle_timeout": self.engine.args.idle_timeout})
+
             if not self.path.startswith("/synthesize"):
                 return self._json(404, {"error": "not found"})
 
@@ -284,11 +290,12 @@ def idle_watchdog(engine, timeout, parent_pid):
             engine.log({"event": "orphan_exit", "parent_pid": parent_pid, "ppid": os.getppid()})
             print("[sidecar] parent gone, exit", flush=True)
             os._exit(0)
-        if timeout <= 0:
-            continue
         with engine.active_lock:
             active = engine.active
-        if active == 0 and time.time() - engine.last_request > timeout:
+            current_timeout = engine.args.idle_timeout
+        if current_timeout <= 0:
+            continue
+        if active == 0 and time.time() - engine.last_request > current_timeout:
             engine.log({"event": "idle_exit", "idle_s": round(time.time() - engine.last_request, 1)})
             print("[sidecar] idle timeout, exit", flush=True)
             os._exit(0)

@@ -42,7 +42,9 @@ export const ERR_CODES = [
 ]
 
 export const COPY_LABEL = {
-  import: '导入地址',
+  import: '管理导入地址',
+  'share-import': '只读分享地址',
+  'share-token': '只读分享令牌',
   'public-import': '公网导入地址',
   'quick-import': '临时公网导入地址',
   'relay-import': '中转公网导入地址',

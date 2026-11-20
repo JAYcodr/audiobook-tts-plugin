@@ -39,10 +39,23 @@ export class LocalProvider extends TTSProvider {
   }
 
   async onConfigChange(before, after) {
-    const changed = before?.upstream?.provider !== after?.upstream?.provider
-      || JSON.stringify(before?.upstream?.local) !== JSON.stringify(after?.upstream?.local)
-    if (changed) {
+    const bLoc = before?.upstream?.local || {}
+    const aLoc = after?.upstream?.local || {}
+    const structuralChanged = before?.upstream?.provider !== after?.upstream?.provider
+      || bLoc.pythonPath !== aLoc.pythonPath
+      || bLoc.serverScript !== aLoc.serverScript
+      || bLoc.modelPath !== aLoc.modelPath
+      || bLoc.port !== aLoc.port
+      || JSON.stringify(bLoc.refs) !== JSON.stringify(aLoc.refs)
+    if (structuralChanged) {
       await this.engine.invalidate().catch((err) => this.log(`[warn] 本地引擎重启失败：${err?.message || err}`))
+      return
+    }
+    if (
+      bLoc.idleUnloadSeconds !== aLoc.idleUnloadSeconds
+      || bLoc.warmupWindowSeconds !== aLoc.warmupWindowSeconds
+    ) {
+      await this.engine.syncIdlePolicy().catch(() => {})
     }
   }
 

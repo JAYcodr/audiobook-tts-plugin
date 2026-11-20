@@ -11,26 +11,67 @@ export function safeEqual(a, b) {
   return timingSafeEqual(ba, bb)
 }
 
-/** Basic 或 URL/Header token，二选一即可。 */
-export function authorized(req, url, auth) {
-  if (!auth?.enabled) return true
+export function extractRequestToken(req, url) {
+  return String(
+    url?.searchParams?.get('token')
+    || req?.headers?.['x-mimo-token']
+    || req?.headers?.['x-audiobook-token']
+    || '',
+  ).trim()
+}
 
-  const token = url.searchParams.get('token')
-    || req.headers['x-mimo-token']
-    || req.headers['x-audiobook-token']
-  if (auth.token && token && safeEqual(String(token), auth.token)) return true
+/**
+ * 解析当前请求的权限角色：
+ *   - `admin`: auth.enabled=false、主 auth.token 或 Basic 账密通过
+ *   - `read`: 命中 auth.readTokens[] 中某条只读分享令牌
+ *   - `none`: 未通过鉴权
+ */
+export function resolveAuth(req, url, auth) {
+  if (!auth?.enabled) return { ok: true, role: 'admin', tokenId: '', tokenLabel: '', token: '' }
 
-  const header = req.headers.authorization || ''
+  const token = extractRequestToken(req, url)
+  if (auth.token && token && safeEqual(token, auth.token)) {
+    return { ok: true, role: 'admin', tokenId: 'admin', tokenLabel: '管理主令牌', token: auth.token }
+  }
+
+  const readTokens = Array.isArray(auth.readTokens) ? auth.readTokens : []
+  if (token && readTokens.length) {
+    let matched = null
+    for (const rt of readTokens) {
+      if (rt?.token && safeEqual(token, rt.token)) matched = rt
+    }
+    if (matched) {
+      return {
+        ok: true,
+        role: 'read',
+        tokenId: String(matched.id || ''),
+        tokenLabel: String(matched.label || ''),
+        token: String(matched.token),
+      }
+    }
+  }
+
+  const header = req?.headers?.authorization || ''
   if (header.startsWith('Basic ')) {
     const decoded = Buffer.from(header.slice(6), 'base64').toString('utf8')
     const idx = decoded.indexOf(':')
     if (idx >= 0) {
       const user = decoded.slice(0, idx)
       const pass = decoded.slice(idx + 1)
-      if (safeEqual(user, auth.user) && safeEqual(pass, auth.pass)) return true
+      if (safeEqual(user, auth.user) && safeEqual(pass, auth.pass)) {
+        return { ok: true, role: 'admin', tokenId: 'basic', tokenLabel: 'Basic', token: '' }
+      }
     }
   }
-  return false
+  return { ok: false, role: 'none', tokenId: '', tokenLabel: '', token: '' }
+}
+
+/** Basic 或 URL/Header token，二选一即可。默认仅放行管理权限；朗读路由需显式传 `{ allowRead: true }`。 */
+export function authorized(req, url, auth, { allowRead = false } = {}) {
+  const res = resolveAuth(req, url, auth)
+  if (!res.ok) return false
+  if (res.role === 'read' && !allowRead) return false
+  return true
 }
 
 /** 请求是否经过隧道/反代（有转发头就说明不是直连）。 */

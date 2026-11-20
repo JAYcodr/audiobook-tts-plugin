@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BUILTIN_VOICE_PROFILES, PRESET_VOICES, Store } from '../src/config.mjs'
-import { BUILTIN_RULE_PRESETS, previewTextPipeline } from '../src/lexicon.mjs'
+import { BUILTIN_POLYPHONE_PRESETS, BUILTIN_RULE_PRESETS, previewTextPipeline } from '../src/lexicon.mjs'
 import { TtsService } from '../src/service.mjs'
 import { silentWav } from '../src/wav.mjs'
 
@@ -72,9 +72,18 @@ function buildFixtureState() {
       openai: { ready: false },
       openaiServer: { enabled: true, defaultModel: 'audiobook-tts', mp3Fallback: 'wav' },
     },
-    local: { state: 'ready', enabled: true, warm: true, pid: 41092, port: 8398, rssMb: 2140, loadS: 4.1, lastUsed: now - 310_000, idleUnloadSeconds: 300, requests: 18, lastError: '' },
+    local: {
+      state: 'ready', enabled: true, mode: 'powersave', warm: true, pid: 41092, port: 8398,
+      rssMb: 2140, loadS: 4.1, lastUsed: now - 310_000, idleUnloadSeconds: 1800, warmupWindowSeconds: 900,
+      warmHoldRemainingSec: 590, requests: 18, lastError: '',
+    },
     live: {
-      rpm: { used: 6, limit: 100, waiting: 0 },
+      rpm: { used: 6, limit: 100, waiting: 0, unlimited: false },
+      rpmByProvider: {
+        mimo: { used: 6, limit: 100, waiting: 0, unlimited: false },
+        openai: { used: 0, limit: 100, waiting: 0, unlimited: false },
+        local: { used: 18, limit: null, waiting: 0, unlimited: true },
+      },
       cache: { entries: 42, maxEntries: 500, bytes: 18_400_000, maxBytes: 512 * 1024 * 1024, hits: 19, misses: 23, hitRate: 0.45 },
       local: { state: 'ready', enabled: true, warm: true, rssMb: 2140 },
       today: { segments: 128, seconds: 742, chars: 11240, errors: 0 },
@@ -101,7 +110,8 @@ function buildFixtureState() {
           serverScript: '',
           modelPath: '~/.dsh/plugin-data/audiobook-tts-plugin/models/qwen3tts-0.6b-base-8bit',
           port: 8398,
-          idleUnloadSeconds: 300,
+          idleUnloadSeconds: 1800,
+          warmupWindowSeconds: 900,
           startupTimeoutMs: 180000,
           requestTimeoutMs: 180000,
           refs: {
@@ -115,11 +125,17 @@ function buildFixtureState() {
         dialogue: { mode: 'preset', voice: '苏打', style: '沉稳自然的中文男声，语速适中', refId: '' },
       },
       voiceProfiles: { active: 'builtin:story-warm', items: [] },
-      textRules: { enabled: true, items: [BUILTIN_RULE_PRESETS[0], BUILTIN_RULE_PRESETS[1]] },
+      textRules: { enabled: true, polyphoneEnabled: true, disabledPresets: [], items: [BUILTIN_RULE_PRESETS[0], BUILTIN_RULE_PRESETS[1]] },
       synth: { maxSegmentChars: 100, maxTextChars: 10000, concurrency: 4, stream: false },
       cache: { enabled: true, maxEntries: 500, maxBytes: 512 * 1024 * 1024, ttlSeconds: 7200 },
       legado: { name: '听书值守 TTS', extraHeaders: {} },
-      auth: { enabled: true, user: 'admin', pass: '', token: 'demo-token-2026' },
+      auth: {
+        enabled: true,
+        user: 'admin',
+        pass: '',
+        token: 'demo-token-2026',
+        readTokens: [{ id: 'rt:demo01', label: '朋友 iPhone', token: '••••••', createdAt: now - 3600_000 }],
+      },
       limits: { rpm: 100 },
       log: { ring: 500 },
       openaiServer: {
@@ -157,6 +173,13 @@ function buildFixtureState() {
       quickJsonUrl: 'https://demo-preview-tunnel.trycloudflare.com/legado.json?token=demo-token-2026',
       relayBaseUrl: 'https://tts-relay.example.workers.dev',
       relayJsonUrl: 'https://tts-relay.example.workers.dev/legado.json?token=demo-token-2026',
+      shareJsonUrl: 'http://192.168.1.100:8291/legado.json?token=rt_demo_share',
+      sharePublicJsonUrl: 'https://tts-demo.example.com/legado.json?token=rt_demo_share',
+      shareBestJsonUrl: 'https://tts-demo.example.com/legado.json?token=rt_demo_share',
+      shareTokens: [
+        { id: 'rt:demo01', label: '朋友 iPhone', createdAt: now - 3600_000, jsonUrl: 'http://192.168.1.100:8291/legado.json?token=rt_demo_share', bestJsonUrl: 'https://tts-demo.example.com/legado.json?token=rt_demo_share' },
+      ],
+      hasReadToken: true,
       openaiBaseUrl: 'https://tts-demo.example.com/v1',
       openaiQuickBaseUrl: 'https://demo-preview-tunnel.trycloudflare.com/v1',
       openaiLanBaseUrl: 'http://192.168.1.100:8291/v1',
@@ -184,6 +207,7 @@ function buildFixtureState() {
     presetVoices: PRESET_VOICES,
     builtinVoiceProfiles: BUILTIN_VOICE_PROFILES,
     builtinRulePresets: BUILTIN_RULE_PRESETS,
+    builtinPolyphonePresets: BUILTIN_POLYPHONE_PRESETS,
     refs: [
       { id: 'builtin:narrator-14s', name: '旁白女声 · 14s 完整句（推荐）', builtin: true, exists: true, durationSec: 14.18, sampleRate: 24000, text: '我能隐隐约约感觉到，你和我一样，都有想要守护的东西……是那种，一步都不能退让，用尽一切办法都要守护的东西。', warnings: [] },
       { id: 'builtin:narrator-10s', name: '旁白女声 · 10s 紧凑', builtin: true, exists: true, durationSec: 10.0, sampleRate: 24000, text: '我能隐隐约约感觉到，你和我一样，都有想要守护的东西，是那种，一步都不能退', warnings: [] },

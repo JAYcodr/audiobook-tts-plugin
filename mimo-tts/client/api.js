@@ -53,3 +53,6 @@ export const fetchTunnelStatusApi = (detect = false) => api(`/tunnel/status${det
 export const controlQuickTunnelApi = (payload) => api('/tunnel/quick', { method: 'POST', body: JSON.stringify(payload) })
 export const syncTunnelKvApi = (payload = {}) => api('/tunnel/sync-kv', { method: 'POST', body: JSON.stringify(payload) })
 export const genOpenAiServerKeyApi = () => api('/openai-server/gen-key', { method: 'POST' })
+export const createReadTokenApi = (label) => api('/auth/read-tokens', { method: 'POST', body: JSON.stringify({ label }) })
+export const deleteReadTokenApi = (id) => api(`/auth/read-tokens/${encodeURIComponent(id)}`, { method: 'DELETE' })
+export const rotateAdminTokenApi = () => api('/auth/rotate-token', { method: 'POST' })

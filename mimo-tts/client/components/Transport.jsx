@@ -48,6 +48,9 @@ export function Transport({ service, localInfo, live, items, totalAudio, view, s
   const openai = service?.openai || {}
   const provider = service?.provider || 'mimo'
   const rpm = live?.rpm || {}
+  const rpmUnlimited = Boolean(rpm.unlimited) || (provider === 'local' && rpm.limit == null)
+  const rpmLimit = rpmUnlimited ? null : Math.max(1, num(rpm.limit, 100))
+  const rpmText = rpmUnlimited ? `${num(rpm.used)} / ∞` : `${num(rpm.used)} / ${rpmLimit}`
   const isHybrid = provider === 'hybrid'
   const usesLocal = provider === 'local' || isHybrid
   const localState = localInfo?.state || 'disabled'
@@ -88,7 +91,7 @@ export function Transport({ service, localInfo, live, items, totalAudio, view, s
   const stopZh = busyName === 'stop' ? '停止中' : '停止'
   const restartZh = busyName === 'restart' ? '重启中' : '重启'
 
-  const ratio = clamp(num(rpm.used) / Math.max(1, num(rpm.limit, 100)), 0, 1)
+  const ratio = rpmUnlimited ? 0 : clamp(num(rpm.used) / rpmLimit, 0, 1)
   const liveCls = error ? 'rail-live paused' : running ? (paused ? 'rail-live paused' : 'rail-live') : 'rail-live stopped'
   const liveWord = error ? 'ERR' : running ? (paused ? 'PAUSED' : 'LIVE') : 'STOP'
 
@@ -174,12 +177,12 @@ export function Transport({ service, localInfo, live, items, totalAudio, view, s
           ))}
         </div>
         <div className="rail-meters">
-          <div className="meter" title="每分钟请求数 — 滑动 60 秒窗口">
-            <span className="ml">RPM</span>
+          <div className="meter" title={rpmUnlimited ? '本地引擎不受云端 RPM 限制 — 近 60 秒本地段数' : '每分钟请求数 — 滑动 60 秒窗口'}>
+            <span className="ml">{rpmUnlimited ? 'LOCAL/m' : 'RPM'}</span>
             <span className="meter-bar">
-              <i style={{ width: `${Math.max(1.5, ratio * 100)}%` }} />
+              <i style={{ width: `${rpmUnlimited ? 0 : Math.max(1.5, ratio * 100)}%` }} />
             </span>
-            <span className="mv">{`${num(rpm.used)} / ${num(rpm.limit, 100)}`}</span>
+            <span className="mv">{rpmText}</span>
           </div>
           <div className="meter">
             <span className="ml">队列</span>

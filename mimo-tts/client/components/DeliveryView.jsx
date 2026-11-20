@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useState } from 'react'
+import { createReadTokenApi } from '../api.js'
 import { BODY_TEXT, ERR_CODES, PROVIDER_CN } from '../constants.js'
-import { curlText, legadoPayload } from '../delivery.js'
+import { curlText, legadoPayload, writeClipboard } from '../delivery.js'
 import { num } from '../format.js'
 import { HttpsAccessCard } from './HttpsAccessCard.jsx'
 import { PreviewPlayer } from './PreviewPlayer.jsx'
@@ -11,10 +12,37 @@ export function DeliveryView({
   service, config, importInfo, tunnel, onRefreshState, onOpenSettings,
   onCopy, onExportConfig, onOpenSetup, showToast,
 }) {
+  const [shareBusy, setShareBusy] = useState(false)
   const imp = importInfo || {}
   const cfg = config || {}
   const running = Boolean(service?.running)
   const hasToken = Boolean(imp.hasToken)
+  const shareUrl = imp.shareBestJsonUrl || imp.sharePublicJsonUrl || imp.shareRelayJsonUrl || imp.shareQuickJsonUrl || imp.shareJsonUrl || ''
+  const shareCount = Array.isArray(cfg.auth?.readTokens) ? cfg.auth.readTokens.length : (Array.isArray(imp.shareTokens) ? imp.shareTokens.length : 0)
+
+  const copyShareUrl = async () => {
+    if (shareUrl) {
+      onCopy('share-import')
+      return
+    }
+    if (shareBusy) return
+    setShareBusy(true)
+    try {
+      const res = await createReadTokenApi('分享设备')
+      await onRefreshState?.()
+      const nextUrl = res?.import?.shareBestJsonUrl || res?.import?.shareJsonUrl || ''
+      if (nextUrl) {
+        const ok = await writeClipboard(nextUrl)
+        showToast?.(ok ? '已生成只读分享令牌并复制地址' : '已生成只读分享令牌，请点击复制')
+      } else {
+        showToast?.('已生成只读分享令牌')
+      }
+    } catch (err) {
+      showToast?.(`生成分享地址失败：${String(err?.message || err)}`)
+    } finally {
+      setShareBusy(false)
+    }
+  }
   const lanUrls = Array.isArray(imp.lanUrls) ? imp.lanUrls : []
   const publicJson = imp.publicJsonUrl || ''
   const relayJson = imp.relayJsonUrl || (imp.relayBaseUrl && imp.jsonUrl ? `${imp.relayBaseUrl}/legado.json${cfg.auth?.enabled && cfg.auth?.token ? `?token=${encodeURIComponent(cfg.auth.token)}` : ''}` : '')
@@ -226,7 +254,32 @@ export function DeliveryView({
 
         <div className="labelblock">
           <div className="lb-hd">
-            <span className="silk">IMPORT URL <b>一键导入地址</b></span>
+            <span className="silk">SHARE URL · READ-ONLY <b>只读分享地址（推荐发给朋友 / 从设备）</b></span>
+            <span className={`tag${shareUrl ? ' tape' : ''}`}>{shareCount ? `${shareCount} 台设备` : '未签发'}</span>
+          </div>
+          <div className="addr">
+            <code id="shareImportUrl">{shareUrl || '尚未创建只读分享令牌 — 点击右侧按钮自动签发并复制（仅允许听书与 OpenAI 合成，访问 /api/* 一律 403）'}</code>
+            <button
+              className="btn btn--sm btn--tape"
+              type="button"
+              disabled={shareBusy}
+              data-copy="share-import"
+              onClick={copyShareUrl}
+            >
+              {shareBusy ? '生成中…' : (shareUrl ? '复制分享地址' : '生成并复制分享地址')}
+            </button>
+            <button className="btn btn--sm btn--ghost" type="button" onClick={() => onOpenSettings?.('mod-auth')}>
+              设备令牌管理
+            </button>
+          </div>
+          <div className="addr-note">
+            分享给他人请务必使用只读地址；主管理令牌拥有修改配置与启停权限，切勿外传。若某设备令牌泄露，可在「设置 → 10 鉴权与日志」单独吊销。
+          </div>
+        </div>
+
+        <div className="labelblock">
+          <div className="lb-hd">
+            <span className="silk">ADMIN IMPORT URL <b>管理导入地址（完整权限 · 自用）</b></span>
             <span className="silk">{publicJson ? 'WAN' : 'LAN'}</span>
           </div>
           <div className="addr">

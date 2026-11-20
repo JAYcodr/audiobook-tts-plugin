@@ -177,6 +177,7 @@ test('client.js 产物可在 DSH ModuleLoader 中加载并渲染全部工作面'
     presetVoices: ['冰糖', '苏打'],
     builtinVoiceProfiles: [{ id: 'builtin:story-warm', name: '经典说书', builtin: true, voices: {} }],
     builtinRulePresets: [{ id: 'preset:strip-ps', name: '过滤 PS', pattern: '^PS:.*$', replace: '', regex: true, flags: 'gim', scope: 'all', enabled: true }],
+    builtinPolyphonePresets: [{ id: 'poly:xuepo', name: '血泊 → 血坡', pattern: '血泊', replace: '血坡', regex: false, scope: 'all', enabled: true }],
     refs: [{ id: 'builtin:narrator-14s', name: '旁白女声 14s', builtin: true, exists: true, durationSec: 14.2, text: '测试文本' }],
     setupSummary: { state: 'idle', platformSupported: true, readyForLocal: false },
   }
@@ -220,6 +221,7 @@ test('client.js 产物可在 DSH ModuleLoader 中加载并渲染全部工作面'
     }
     if (view === 'delivery') {
       assert.ok(flatText.includes('公网 HTTPS 四选一接入与 Quick Tunnel'))
+      assert.ok(flatText.includes('只读分享地址'))
       assert.ok(flatText.includes('OpenAI 兼容阅读软件接入单'))
       assert.ok(flatText.includes('局域网扫码导入'))
       assert.ok(flatText.includes('公网穿透扫码导入'))

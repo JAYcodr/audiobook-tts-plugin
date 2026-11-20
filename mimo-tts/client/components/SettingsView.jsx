@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { genOpenAiServerKeyApi } from '../api.js'
+import { createReadTokenApi, deleteReadTokenApi, genOpenAiServerKeyApi, rotateAdminTokenApi } from '../api.js'
 import { DEFAULT_OPENAI_VOICE_MAP, buildDraftSnapshot, fmtDirtyVal } from '../config-draft.js'
 import { writeClipboard } from '../delivery.js'
 import { fmtBytes, fmtInt, localStateText, ttlText } from '../format.js'
@@ -139,7 +139,7 @@ function RoleVoiceCard({
 
 export function SettingsView({
   live, localInfo, draft, applied, changes, presetVoices, builtinVoiceProfiles,
-  builtinRulePresets, refs, onRefsChange, onOpenSetup,
+  builtinRulePresets, builtinPolyphonePresets, refs, importInfo, onRefsChange, onRefreshState, onOpenSetup,
   saving, savedAt, onSet, onSetBatch, onSave, onRevert, onExportConfig, showToast,
 }) {
   const [expandLocal, setExpandLocal] = useState(false)
@@ -148,6 +148,9 @@ export function SettingsView({
   const [genKeyBusy, setGenKeyBusy] = useState(false)
   const [newMapVoice, setNewMapVoice] = useState('')
   const [newMapTarget, setNewMapTarget] = useState('auto')
+  const [newReadLabel, setNewReadLabel] = useState('')
+  const [tokenBusy, setTokenBusy] = useState(false)
+  const [lastCreatedRead, setLastCreatedRead] = useState(null)
 
   const d = draft || applied || {}
   const provider = String(d['upstream.provider'] || 'mimo')
@@ -340,6 +343,54 @@ export function SettingsView({
   const voiceMapEntries = Object.entries(voiceMapObj)
   const rawOaServerKey = String(d['openaiServer.apiKey'] || '')
   const canCopyOaServerKey = Boolean(rawOaServerKey && !/[\u2026\u2022\u00b7]/.test(rawOaServerKey))
+  const shareTokensList = Array.isArray(importInfo?.shareTokens) ? importInfo.shareTokens : []
+
+  const issueReadToken = async () => {
+    if (tokenBusy) return
+    setTokenBusy(true)
+    try {
+      const label = newReadLabel.trim() || `分享设备 ${shareTokensList.length + 1}`
+      const res = await createReadTokenApi(label)
+      setNewReadLabel('')
+      setLastCreatedRead(res?.item || null)
+      await onRefreshState?.()
+      if (res?.item?.token) await writeClipboard(res.item.token).catch(() => {})
+      showToast(`已生成只读令牌「${label}」（已尝试复制）`)
+    } catch (err) {
+      showToast(`生成失败：${String(err?.message || err)}`)
+    } finally {
+      setTokenBusy(false)
+    }
+  }
+
+  const revokeReadToken = async (id, label) => {
+    if (tokenBusy) return
+    setTokenBusy(true)
+    try {
+      await deleteReadTokenApi(id)
+      if (lastCreatedRead?.id === id) setLastCreatedRead(null)
+      await onRefreshState?.()
+      showToast(`已吊销只读令牌：${label || id}`)
+    } catch (err) {
+      showToast(`吊销失败：${String(err?.message || err)}`)
+    } finally {
+      setTokenBusy(false)
+    }
+  }
+
+  const rotateAdminToken = async () => {
+    if (tokenBusy) return
+    setTokenBusy(true)
+    try {
+      await rotateAdminTokenApi()
+      await onRefreshState?.()
+      showToast('主管理令牌已轮换，请到交付页重新复制自用导入地址')
+    } catch (err) {
+      showToast(`轮换失败：${String(err?.message || err)}`)
+    } finally {
+      setTokenBusy(false)
+    }
+  }
 
   const assignRefToRole = (roleKey, item) => {
     const roleCn = roleKey === 'dialogue' ? '对话' : '旁白'
@@ -489,8 +540,28 @@ export function SettingsView({
 
           {moduleShell('mod-local', '02', '本地引擎 (Qwen3-TTS MLX)', localActive ? 'ACTIVE' : 'COLLAPSED', 'local', showLocalBody ? [
             <div key="st" className="ctrl-row">
-              <div className="cl"><b>引擎进程状态</b><i>{localTag}</i></div>
+              <div className="cl">
+                <b>引擎进程状态与内存</b>
+                <i>
+                  {`${localTag}${localInfo?.rssMb ? ` · ${(Number(localInfo.rssMb) / 1024).toFixed(2)} GB` : ' · 常驻约 1–2.3 GB'}`}
+                </i>
+              </div>
               <button className="btn btn--sm" type="button" onClick={onOpenSetup}>自动探测 / 安装</button>
+            </div>,
+            <div key="res-mode" className="ctrl-row">
+              <div className="cl">
+                <b>驻留策略</b>
+                <i>{Number(d['upstream.local.idleUnloadSeconds'] || 0) === 0 ? '常驻（零冷启动，占 1–2.3 GB）' : `省内存（空闲 ${d['upstream.local.idleUnloadSeconds']}s 卸载）`}</i>
+              </div>
+              <Seg
+                options={[
+                  { value: 'resident', label: '保持常驻 (0s)' },
+                  { value: 'powersave', label: '省内存 (30m)' },
+                ]}
+                value={Number(d['upstream.local.idleUnloadSeconds'] || 0) === 0 ? 'resident' : 'powersave'}
+                ariaLabel="本地引擎驻留策略"
+                onChange={(v) => onSet('upstream.local.idleUnloadSeconds', v === 'resident' ? '0' : '1800')}
+              />
             </div>,
             <Field key="py" label="Python (支持 ~/)" sub="VENV">{input('upstream.local.pythonPath', { spellCheck: false, placeholder: '~/.dsh/plugin-data/audiobook-tts-plugin/venv/bin/python' })}</Field>,
             <Field key="md" label="模型目录 (支持 ~/)" sub="MLX MODEL">{input('upstream.local.modelPath', { spellCheck: false, placeholder: '~/.dsh/plugin-data/audiobook-tts-plugin/models/qwen3tts-0.6b-base-8bit' })}</Field>,
@@ -500,7 +571,8 @@ export function SettingsView({
               <Field label="启动超时" sub="MS" style={{ padding: 0 }}>{input('upstream.local.startupTimeoutMs', { type: 'number' })}</Field>,
             ),
             <div key="idle" className="knob-row">
-              {knob('upstream.local.idleUnloadSeconds', '空闲卸载', 0, 3600, 30, 's', '空闲卸载（秒，0=常驻）')}
+              {knob('upstream.local.idleUnloadSeconds', '空闲卸载', 0, 7200, 60, 's', '空闲卸载（秒，0=常驻）')}
+              {knob('upstream.local.warmupWindowSeconds', '预热窗口', 0, 3600, 60, 's', '首请求预热保活窗口（秒）')}
               <Field label="请求超时" sub="MS" style={{ flex: '1', padding: 0 }}>
                 {input('upstream.local.requestTimeoutMs', { type: 'number' })}
               </Field>
@@ -646,10 +718,15 @@ export function SettingsView({
             <LexiconEditor
               key="lx"
               enabled={Boolean(d['textRules.enabled'])}
+              polyphoneEnabled={d['textRules.polyphoneEnabled'] !== false}
+              disabledPresets={d['textRules.disabledPresets']}
               items={d['textRules.items']}
               presets={builtinRulePresets}
+              polyphonePresets={builtinPolyphonePresets}
               maxSegmentChars={d['synth.maxSegmentChars']}
               onToggle={(val) => onSet('textRules.enabled', val)}
+              onTogglePolyphone={(val) => onSet('textRules.polyphoneEnabled', val)}
+              onChangeDisabledPresets={(ids) => onSet('textRules.disabledPresets', ids)}
               onChangeItems={(items) => onSet('textRules.items', items)}
               showToast={showToast}
             />,
@@ -861,7 +938,7 @@ export function SettingsView({
             </div>,
           ], { wide: true })}
 
-          {moduleShell('mod-auth', '10', '鉴权与日志', 'AUTH', 'auth', [
+          {moduleShell('mod-auth', '10', '鉴权、只读分享令牌与日志', 'AUTH & TOKENS', 'auth', [
             <div key="acols" className="synth-cols">
               <div>
                 <div className="ctrl-row">
@@ -872,10 +949,82 @@ export function SettingsView({
                 <Field label="口令" sub="PASS · 已掩码">{input('auth.pass')}</Field>
               </div>
               <div>
-                <Field label="URL 令牌" sub="TOKEN · 拼进导入地址">{input('auth.token', { spellCheck: false })}</Field>
+                <Field label="主管理令牌" sub="ADMIN TOKEN · 泄露时请立即轮换">
+                  <div className="addr" style={{ gap: 6 }}>
+                    {input('auth.token', { spellCheck: false })}
+                    <button
+                      className="btn btn--sm"
+                      type="button"
+                      disabled={tokenBusy}
+                      title="重新随机生成主管理令牌，旧管理地址立即失效"
+                      onClick={rotateAdminToken}
+                    >
+                      轮换主令牌
+                    </button>
+                  </div>
+                </Field>
                 <Field label="日志环" sub="RING">{input('log.ring', { type: 'number' })}</Field>
-                <p className="hint">令牌同时拼进 /legado.json 与 /listening 的 URL；改完保存后请重新复制导入地址。</p>
+                <p className="hint">主令牌拥有全部管理权，仅供自己使用；分享给他人或外接设备请使用下方只读令牌。</p>
               </div>
+            </div>,
+            <div key="rt-box" className="voicemap-box">
+              <div className="ds-hd">
+                <span className="silk">READ-ONLY SHARE TOKENS <b>只读分享令牌（按设备签发 / 可单独吊销）</b></span>
+                <span className="cn">{`${shareTokensList.length} 个有效`}</span>
+              </div>
+              <div className="addr" style={{ gap: 6 }}>
+                <input
+                  className="input"
+                  value={newReadLabel}
+                  placeholder="设备或朋友备注名（如：朋友 iPhone / 备用安卓）"
+                  onChange={(e) => setNewReadLabel(e.target.value)}
+                />
+                <button className="btn btn--sm btn--tape" type="button" disabled={tokenBusy} onClick={issueReadToken}>
+                  {tokenBusy ? '处理中…' : '+ 签发只读令牌'}
+                </button>
+              </div>
+              {lastCreatedRead?.token ? (
+                <div className="https-warn" style={{ marginTop: 4 }}>
+                  {`新签发「${lastCreatedRead.label}」令牌：`}
+                  <code>{lastCreatedRead.token}</code>
+                </div>
+              ) : null}
+              {shareTokensList.length === 0 ? (
+                <div className="dirty-empty" style={{ marginTop: 4 }}>暂无只读令牌 · 只读令牌可听书及调用 OpenAI 合成端点，访问 /api/* 一律返回 403</div>
+              ) : (
+                <div className="ref-list" style={{ marginTop: 6 }}>
+                  {shareTokensList.map((rt) => (
+                    <div key={rt.id} className="ref-row" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <b>{rt.label}</b>
+                        <span className="mono ref-meta" style={{ marginLeft: 8 }}>
+                          {rt.id} · 仅朗读/OpenAI (403 on /api/*)
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flex: 'none' }}>
+                        <button
+                          className="btn btn--sm"
+                          type="button"
+                          onClick={async () => {
+                            const ok = await writeClipboard(rt.bestJsonUrl || rt.jsonUrl || rt.token)
+                            showToast(ok ? `已复制「${rt.label}」只读导入地址` : '复制被浏览器拦截')
+                          }}
+                        >
+                          复制分享地址
+                        </button>
+                        <button
+                          className="btn btn--sm"
+                          type="button"
+                          disabled={tokenBusy}
+                          onClick={() => revokeReadToken(rt.id, rt.label)}
+                        >
+                          吊销
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>,
           ], { wide: true })}
         </div>

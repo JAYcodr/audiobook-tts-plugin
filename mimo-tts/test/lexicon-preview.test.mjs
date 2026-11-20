@@ -7,9 +7,13 @@ import { join } from 'node:path'
 import { Store, maskKey } from '../src/config.mjs'
 import { TtsService } from '../src/service.mjs'
 import {
+  BUILTIN_POLYPHONE_PRESETS,
   BUILTIN_RULE_PRESETS,
   applyGlobalRules,
   applySegmentRules,
+  exportRulesCsv,
+  exportRulesJson,
+  importRulesFromText,
   previewTextPipeline,
   validateTextRules,
 } from '../src/lexicon.mjs'
@@ -266,6 +270,80 @@ test('POST /listening 与草稿态 POST /api/preview（含 mixed 与保留掩码
     await svc.stop()
   } finally {
     globalThis.fetch = prevFetch
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('Issue #5: 内置多音字词表默认启用、按词匹配且不破坏引号切分，支持开关与 CSV/JSON 导入导出', async () => {
+  const dir = fresh()
+  try {
+    const st = new Store(dir)
+    const cfg = st.load({})
+    st.update({ auth: { enabled: false } })
+    assert.equal(cfg.textRules.polyphoneEnabled, true)
+    assert.ok(BUILTIN_POLYPHONE_PRESETS.length >= 10)
+
+    const svc = new TtsService({ store: st, log: () => {} })
+
+    // 1) 默认状态下 /api/text/preview 生效：按词纠正「血泊/埋怨/单于」，不影响引号角色切分
+    const prevRes = await callSvc(svc, {
+      url: '/api/text/preview',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        text: '单于站在营帐外，“别在血泊里埋怨！”他说。',
+      }),
+    })
+    assert.equal(prevRes.status, 200)
+    const prevJson = JSON.parse(prevRes.bodyText)
+    assert.ok(prevJson.afterText.includes('蝉于'))
+    assert.ok(prevJson.afterText.includes('血坡'))
+    assert.ok(prevJson.afterText.includes('瞒怨'))
+    assert.equal(prevJson.segments.filter((s) => s.role === 'dialogue').length, 1)
+    assert.equal(prevJson.segments.filter((s) => s.role === 'narrator').length, 2)
+
+    // 2) 关闭 polyphoneEnabled 或单条禁用 poly:xuepo 后，原词保持不变
+    const offRes = await callSvc(svc, {
+      url: '/api/text/preview',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        text: '单于站在血泊边。',
+        textRules: { enabled: true, polyphoneEnabled: false, items: [] },
+      }),
+    })
+    assert.equal(offRes.status, 200)
+    assert.ok(JSON.parse(offRes.bodyText).afterText.includes('单于站在血泊边'))
+
+    const partialRes = await callSvc(svc, {
+      url: '/api/text/preview',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        text: '单于站在血泊边。',
+        textRules: { enabled: true, polyphoneEnabled: true, disabledPresets: ['poly:xuepo'], items: [] },
+      }),
+    })
+    assert.equal(partialRes.status, 200)
+    const partialText = JSON.parse(partialRes.bodyText).afterText
+    assert.ok(partialText.includes('蝉于'))
+    assert.ok(partialText.includes('血泊'))
+
+    // 3) CSV / JSON 导入导出往返一致，并拦截 ReDoS 规则导入
+    const csv = exportRulesCsv(BUILTIN_POLYPHONE_PRESETS.slice(0, 3))
+    const impCsv = importRulesFromText(csv, 'csv')
+    assert.deepEqual(impCsv.problems, [])
+    assert.equal(impCsv.items.length, 3)
+    assert.equal(impCsv.items[0].pattern, BUILTIN_POLYPHONE_PRESETS[0].pattern)
+    assert.equal(impCsv.items[0].replace, BUILTIN_POLYPHONE_PRESETS[0].replace)
+
+    const json = exportRulesJson(BUILTIN_POLYPHONE_PRESETS.slice(0, 2))
+    const impJson = importRulesFromText(json, 'json')
+    assert.deepEqual(impJson.problems, [])
+    assert.equal(impJson.items.length, 2)
+
+    const badImp = importRulesFromText(JSON.stringify([{ name: 'redos', pattern: '(a+)+', replace: '', regex: true }]))
+    assert.ok(badImp.problems.some((p) => p.includes('嵌套量词')))
+
+    await svc.stop()
+  } finally {
     rmSync(dir, { recursive: true, force: true })
   }
 })

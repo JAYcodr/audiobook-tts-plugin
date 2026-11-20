@@ -116,10 +116,19 @@ export function readConfigSnapshot(dataDir) {
   }
 }
 
-/** 展示用配置：密钥走 maskKey，token 整段遮掉（12 位令牌用 maskKey 等于全露）。 */
+/** 展示用配置：密钥走 maskKey，token 与只读 token 整段遮掉（12 位令牌用 maskKey 等于全露）。 */
 export function redactedConfig(config) {
   const out = redact(config)
-  out.auth = { ...out.auth, token: config?.auth?.token ? SECRET_FULL_MASK : '' }
+  out.auth = {
+    ...out.auth,
+    token: config?.auth?.token ? SECRET_FULL_MASK : '',
+    readTokens: Array.isArray(config?.auth?.readTokens)
+      ? config.auth.readTokens.map((rt) => ({
+        ...rt,
+        token: rt?.token ? SECRET_FULL_MASK : '',
+      }))
+      : [],
+  }
   return out
 }
 
@@ -130,6 +139,7 @@ function countMaskedFields(config) {
   if (config?.openaiServer?.apiKey) count += 1
   if (config?.auth?.pass) count += 1
   if (config?.auth?.token) count += 1
+  if (Array.isArray(config?.auth?.readTokens)) count += config.auth.readTokens.length
   return count
 }
 

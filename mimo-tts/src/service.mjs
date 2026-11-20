@@ -14,7 +14,7 @@ import { createControlHandler } from './control-api.mjs'
 import { HttpInputError, readBody, sendJson } from './http.mjs'
 import { handleLegadoJson } from './legado.mjs'
 import { applyGlobalRules, applySegmentRules } from './lexicon.mjs'
-import { Metrics, RpmGate } from './metrics.mjs'
+import { Metrics, NoopGate, RpmGate } from './metrics.mjs'
 import { createOpenAiServerHandler } from './openai-server.mjs'
 import { ProviderError, ProviderRegistry } from './providers/base.mjs'
 import { HybridProvider } from './providers/hybrid.mjs'
@@ -46,7 +46,17 @@ export class TtsService {
     })
     this.metrics.load()
     this.cache = new AudioCache(() => this.store.config.cache)
-    this.gate = new RpmGate(() => this.store.config.limits.rpm)
+    const mimoGate = new RpmGate(() => this.store.config.limits.rpm)
+    const openaiGate = new RpmGate(() => this.store.config.limits.rpm)
+    const localGate = new NoopGate()
+    this.gates = new Map([
+      ['mimo', mimoGate],
+      ['openai', openaiGate],
+      ['local', localGate],
+      ['hybrid', mimoGate],
+    ])
+    // 向后兼容属性（测试与外部脚本可能直接访问 svc.gate）
+    this.gate = mimoGate
     this.refs = new RefsStore({ dataDir: store.dataDir || '', log: this.log }).load()
     if (store && typeof store === 'object') store.refsStore = this.refs
 
@@ -55,7 +65,7 @@ export class TtsService {
       getConfig: () => this.store.config,
       refsStore: this.refs,
       cache: this.cache,
-      gate: this.gate,
+      gate: mimoGate,
       log: this.log,
     }))
     this.localProvider = this.registry.register(new LocalProvider({
@@ -63,20 +73,20 @@ export class TtsService {
       dataDir: this.store.dataDir,
       refsStore: this.refs,
       cache: this.cache,
-      gate: this.gate,
+      gate: localGate,
       log: this.log,
     }))
     this.openaiProvider = this.registry.register(new OpenAiTtsProvider({
       getConfig: () => this.store.config,
       cache: this.cache,
-      gate: this.gate,
+      gate: openaiGate,
       log: this.log,
     }))
     this.hybridProvider = this.registry.register(new HybridProvider({
       getConfig: () => this.store.config,
       refsStore: this.refs,
       cache: this.cache,
-      gate: this.gate,
+      gate: mimoGate,
       log: this.log,
       mimoProvider: this.mimoProvider,
       localProvider: this.localProvider,
@@ -112,6 +122,18 @@ export class TtsService {
   /** 允许外部扩展注册自定义 TTSProvider 实例 */
   registerProvider(provider) {
     return this.registry.register(provider)
+  }
+
+  activeGate() {
+    return this.gates.get(this.provider) || this.gate
+  }
+
+  rpmUsageByProvider() {
+    return {
+      mimo: this.gates.get('mimo')?.usage() || { used: 0, limit: 100, waiting: 0, unlimited: false },
+      openai: this.gates.get('openai')?.usage() || { used: 0, limit: 100, waiting: 0, unlimited: false },
+      local: this.gates.get('local')?.usage() || { used: 0, limit: null, waiting: 0, unlimited: true },
+    }
   }
 
   activeProvider() {
@@ -217,7 +239,8 @@ export class TtsService {
         status: 'ok',
         ...this.info(),
         cache: this.cache.stats(),
-        rpm: this.gate.usage(),
+        rpm: this.activeGate().usage(),
+        rpmByProvider: this.rpmUsageByProvider(),
         local: this.local.status(),
       })
     }
@@ -236,8 +259,8 @@ export class TtsService {
     return sendJson(res, 404, { error: 'not found' })
   }
 
-  authorized(req, url) {
-    return authorized(req, url, this.config.auth)
+  authorized(req, url, opts) {
+    return authorized(req, url, this.config.auth, opts)
   }
 
   handleLegadoJson(req, res, url) {
@@ -247,7 +270,9 @@ export class TtsService {
   // ───────────────────────── 朗读与合成流水线 ─────────────────────────
 
   async handleListening(req, res, url) {
-    if (!this.authorized(req, url)) return sendJson(res, 401, { error: '需要鉴权' }, { basic: true })
+    if (!this.authorized(req, url, { allowRead: true })) {
+      return sendJson(res, 401, { error: '需要鉴权' }, { basic: true })
+    }
     if (!this.listening) return sendJson(res, 503, { error: '服务未启动' })
 
     let text = ''
