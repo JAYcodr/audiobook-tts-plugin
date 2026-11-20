@@ -8,9 +8,16 @@
 import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { authorized, clientKeyOf } from './auth.mjs'
-import { AudioCache } from './cache.mjs'
+import {
+  AudioCache,
+  computeResponseEtag,
+  computeSegmentKeys,
+  etagMatches,
+  resolveHttpCachePolicy,
+} from './cache.mjs'
 import { validatePatch } from './config.mjs'
 import { createControlHandler } from './control-api.mjs'
+import { encodeHintHeader, humanizeError } from './hints.mjs'
 import { HttpInputError, readBody, sendJson } from './http.mjs'
 import { handleLegadoJson } from './legado.mjs'
 import { applyGlobalRules, applySegmentRules } from './lexicon.mjs'
@@ -24,6 +31,7 @@ import { OpenAiTtsProvider } from './providers/openai.mjs'
 import { RefsStore } from './refs-store.mjs'
 import { SetupManager } from './setup-manager.mjs'
 import { splitText, toRequests } from './split.mjs'
+import { LEGADO_FORMATS, transcodeWav } from './transcode.mjs'
 import { TunnelManager } from './tunnel-manager.mjs'
 import { concatWavs } from './wav.mjs'
 
@@ -34,10 +42,12 @@ export class TtsService {
    * @param {object} deps
    * @param {import('./config.mjs').Store} deps.store
    * @param {(line:string)=>void} [deps.log]
+   * @param {object} [deps.transcodeOpts]
    */
-  constructor({ store, log }) {
+  constructor({ store, log, transcodeOpts }) {
     this.store = store
     this.log = log || ((line) => console.log(line))
+    this.transcodeOpts = transcodeOpts || {}
     const metricsFile = store.dataDir ? join(store.dataDir, 'metrics.json') : ''
     this.metrics = new Metrics({
       ringSize: store.config.log.ring,
@@ -267,17 +277,44 @@ export class TtsService {
     return handleLegadoJson(req, res, url, this.config)
   }
 
+  localReadyForFallback() {
+    if (this.provider === 'local') return false
+    if (this.local?.isWarm?.()) return true
+    const lo = this.config.upstream?.local || {}
+    return Boolean(String(lo.pythonPath || '').trim() && String(lo.modelPath || '').trim())
+  }
+
+  diagnosticContext(extra = {}) {
+    return {
+      provider: this.provider,
+      localReady: this.localReadyForFallback(),
+      maxTextChars: this.config.synth?.maxTextChars,
+      ...extra,
+    }
+  }
+
   // ───────────────────────── 朗读与合成流水线 ─────────────────────────
 
   async handleListening(req, res, url) {
     if (!this.authorized(req, url, { allowRead: true })) {
-      return sendJson(res, 401, { error: '需要鉴权' }, { basic: true })
+      const diag = humanizeError(401, this.diagnosticContext({ endpointAuth: true }))
+      return sendJson(res, 401, { error: '需要鉴权', hint: diag.hint, code: diag.code }, {
+        basic: true,
+        headers: { 'X-Audiobook-Hint': encodeHintHeader(diag.hint) },
+      })
     }
-    if (!this.listening) return sendJson(res, 503, { error: '服务未启动' })
+    if (!this.listening) {
+      const diag = humanizeError(Object.assign(new Error('服务未启动'), { code: 'service_stopped', status: 503 }), this.diagnosticContext())
+      this.metrics.noteError(diag)
+      return sendJson(res, 503, { error: '服务未启动', hint: diag.hint, code: diag.code }, {
+        headers: { 'X-Audiobook-Hint': encodeHintHeader(diag.hint) },
+      })
+    }
 
     let text = ''
     let bookId = ''
     let speed = Number(url.searchParams.get('speed') || 0) || 0
+    let rawFormat = String(url.searchParams.get('format') || '').trim()
     const wantStream = url.searchParams.has('stream')
       ? truthy(url.searchParams.get('stream'))
       : Boolean(this.config.synth.stream)
@@ -291,6 +328,9 @@ export class TtsService {
           text = String(json.text ?? '')
           bookId = String(json.id ?? json.bookId ?? '')
           speed = Number(json.speed) || speed
+          if (!rawFormat && json.format !== undefined && json.format !== null) {
+            rawFormat = String(json.format).trim()
+          }
         } catch {
           return sendJson(res, 400, { error: 'JSON 解析失败' })
         }
@@ -299,6 +339,9 @@ export class TtsService {
         text = params.get('text') || ''
         bookId = params.get('id') || ''
         speed = Number(params.get('speed')) || speed
+        if (!rawFormat && params.get('format')) {
+          rawFormat = String(params.get('format')).trim()
+        }
       }
     } else if (req.method === 'GET') {
       text = url.searchParams.get('text') || ''
@@ -307,10 +350,33 @@ export class TtsService {
       return sendJson(res, 405, { error: 'method not allowed' })
     }
 
+    let targetFormat = 'wav'
+    if (rawFormat) {
+      const lowerFmt = rawFormat.toLowerCase()
+      if (!LEGADO_FORMATS.has(lowerFmt)) {
+        return sendJson(res, 400, {
+          error: `Legado 接口不支持音频格式 "${rawFormat}"，仅支持 wav 或 mp3`,
+        })
+      }
+      targetFormat = lowerFmt
+    } else {
+      const cfgFmt = String(this.config.audio?.format || 'wav').trim().toLowerCase()
+      // Legado 兼容白名单仅 wav / mp3；全局设为 opus 时未显式指定 ?format= 则安全退回 wav。
+      targetFormat = cfgFmt === 'mp3' ? 'mp3' : 'wav'
+    }
+
     text = text.trim()
     if (!text) return sendJson(res, 400, { error: 'text 不能为空' })
     if (text.length > this.config.synth.maxTextChars) {
-      return sendJson(res, 413, { error: `文本超过 ${this.config.synth.maxTextChars} 字` })
+      const diag = humanizeError(413, this.diagnosticContext())
+      this.metrics.noteError(diag)
+      return sendJson(res, 413, {
+        error: `文本超过 ${this.config.synth.maxTextChars} 字`,
+        hint: diag.hint,
+        code: diag.code,
+      }, {
+        headers: { 'X-Audiobook-Hint': encodeHintHeader(diag.hint) },
+      })
     }
 
     const clientKey = clientKeyOf(req)
@@ -326,43 +392,111 @@ export class TtsService {
 
     try {
       const provider = this.activeProvider()
-      if (wantStream && provider.supportsStreaming(requests) && typeof provider.respondStreaming === 'function') {
-        return await provider.respondStreaming(res, requests, { started, text, bookId, clientKey, role }, this.metrics)
+      const streamCtx = { clientKey, speed, started }
+      const streamingPath = wantStream
+        && targetFormat === 'wav'
+        && provider.supportsStreaming(requests, streamCtx)
+        && typeof provider.respondStreaming === 'function'
+      if (wantStream && targetFormat === 'wav' && !streamingPath) {
+        this.log(`[stream] provider=${this.provider} 当前请求不支持流式，已退回整段合成`)
+      } else if (wantStream && targetFormat !== 'wav') {
+        this.log(`[stream] 目标格式为 ${targetFormat}（非 wav），已跳过流式直出并走整段转码`)
       }
+      if (streamingPath) {
+        return await provider.respondStreaming(res, requests, { started, text, bookId, clientKey, role, speed }, this.metrics)
+      }
+
+      const cachePolicy = resolveHttpCachePolicy(this.config.cache)
+      const segKeys = cachePolicy.enabled
+        ? computeSegmentKeys(provider, requests, { clientKey, started, speed, config: this.config })
+        : []
+      const etag = cachePolicy.enabled
+        ? computeResponseEtag({
+            segmentKeys: segKeys,
+            format: targetFormat,
+            bitrate: this.config.audio?.bitrate ?? 64,
+          })
+        : ''
+      if (etag && etagMatches(req.headers?.['if-none-match'], etag)) {
+        res.writeHead(304, {
+          'Cache-Control': cachePolicy.cacheControl,
+          ETag: etag,
+          'X-Cache': 'HIT',
+        })
+        return res.end()
+      }
+
       const { wav, durationSec, hits, source } = await this.synthesize(requests, { clientKey, started, speed })
+      const tx = targetFormat === 'wav'
+        ? { buffer: wav, format: 'wav', contentType: 'audio/wav', fallback: false, reason: '' }
+        : await transcodeWav(wav, {
+            format: targetFormat,
+            bitrate: this.config.audio?.bitrate ?? 64,
+            ...(this.transcodeOpts || {}),
+          })
+      if (tx.fallback) {
+        this.log(`[audio] ${targetFormat} 转码已回退 WAV（reason=${tx.reason}${tx.error ? `: ${tx.error}` : ''}）`)
+      }
+      const cacheHit = this.config.cache?.enabled !== false && requests.length > 0 && hits === requests.length
       const latency = Date.now() - started
       this.metrics.record({
         chars: text.length,
         segments: requests.length,
-        bytes: wav.length,
+        bytes: tx.buffer.length,
         audioSeconds: durationSec,
         latencyMs: latency,
-        cacheHit: hits === requests.length,
+        cacheHit,
         client: clientKey,
         bookId,
         role,
         text: text.slice(0, 60),
-        format: 'wav',
+        format: tx.format,
         source,
       })
-      res.writeHead(200, {
-        'Content-Type': 'audio/wav',
-        'Content-Length': wav.length,
-        'Cache-Control': 'no-store',
+      const headers = {
+        'Content-Type': tx.contentType,
+        'Content-Length': tx.buffer.length,
+        'Cache-Control': (!tx.fallback && cachePolicy.enabled) ? cachePolicy.cacheControl : 'no-store',
+        'X-Cache': cacheHit ? 'HIT' : 'MISS',
         'X-Mimo-Segments': String(requests.length),
         'X-Mimo-Latency-Ms': String(latency),
         'X-Mimo-Duration-S': durationSec.toFixed(2),
         'X-Mimo-Source': source,
-      })
-      res.end(wav)
+      }
+      if (!tx.fallback && etag) headers.ETag = etag
+      if (tx.fallback) {
+        headers['X-Audiobook-Format-Fallback'] = 'wav'
+        if (tx.reason) headers['X-Audiobook-Fallback-Reason'] = tx.reason
+      }
+      res.writeHead(200, headers)
+      res.end(tx.buffer)
     } catch (err) {
+      const diag = humanizeError(err, this.diagnosticContext())
       const latency = Date.now() - started
       this.metrics.record({
-        chars: text.length, segments: requests.length, bytes: 0, latencyMs: latency,
-        error: true, client: clientKey, bookId, role, text: text.slice(0, 60),
+        chars: text.length,
+        segments: requests.length,
+        bytes: 0,
+        latencyMs: latency,
+        error: true,
+        errorStatus: diag.httpStatus,
+        errorCode: diag.code,
+        errorMessage: diag.message,
+        errorHint: diag.hint,
+        errorAction: diag.action,
+        client: clientKey,
+        bookId,
+        role,
+        text: text.slice(0, 60),
       })
-      this.log(`[error] 合成失败: ${err?.message || err}`)
-      return sendJson(res, 502, { error: String(err?.message || err) })
+      this.log(`[error] 合成失败 (${diag.httpStatus}/${diag.code}): ${err?.message || err} -> ${diag.message}`)
+      return sendJson(res, diag.httpStatus, {
+        error: diag.message || String(err?.message || err),
+        hint: diag.hint,
+        code: diag.code,
+      }, {
+        headers: { 'X-Audiobook-Hint': encodeHintHeader(`${diag.message}：${diag.hint}`) },
+      })
     }
   }
 

@@ -59,9 +59,12 @@ export const FIELDS = [
   { path: 'synth.maxTextChars', label: '最长文本', module: 'synth' },
   { path: 'synth.concurrency', label: '合成并发', module: 'synth' },
   { path: 'synth.stream', label: '流式返回', module: 'synth' },
+  { path: 'audio.format', label: '输出音频格式', module: 'synth' },
+  { path: 'audio.bitrate', label: '压缩码率', module: 'synth' },
   { path: 'cache.enabled', label: '启用缓存', module: 'synth' },
   { path: 'cache.maxEntries', label: '缓存条目', module: 'synth' },
   { path: 'cache.ttlSeconds', label: '缓存 TTL', module: 'synth' },
+  { path: 'cache.httpMaxAgeSeconds', label: 'HTTP 缓存 max-age', module: 'synth' },
   { path: 'limits.rpm', label: '限速 RPM', module: 'synth' },
   { path: 'auth.enabled', label: 'Basic 鉴权', module: 'auth' },
   { path: 'auth.user', label: '用户名', module: 'auth' },
@@ -91,8 +94,8 @@ export const NUMERIC_FIELDS = new Set([
   'upstream.openai.speed', 'upstream.openai.timeoutMs', 'upstream.openai.maxRetry',
   'upstream.local.port', 'upstream.local.idleUnloadSeconds', 'upstream.local.warmupWindowSeconds',
   'upstream.local.startupTimeoutMs', 'upstream.local.requestTimeoutMs',
-  'synth.maxSegmentChars', 'synth.maxTextChars', 'synth.concurrency',
-  'cache.maxEntries', 'cache.ttlSeconds', 'limits.rpm', 'log.ring',
+  'synth.maxSegmentChars', 'synth.maxTextChars', 'synth.concurrency', 'audio.bitrate',
+  'cache.maxEntries', 'cache.ttlSeconds', 'cache.httpMaxAgeSeconds', 'limits.rpm', 'log.ring',
 ])
 
 export const BOOL_FIELDS = new Set([
@@ -138,6 +141,7 @@ export function fromConfig(cfg) {
   const vp = c.voiceProfiles || {}
   const tr = c.textRules || {}
   const synth = c.synth || {}
+  const audio = c.audio || {}
   const cache = c.cache || {}
   const auth = c.auth || {}
   const legado = c.legado || {}
@@ -206,9 +210,12 @@ export function fromConfig(cfg) {
     'synth.maxTextChars': str(synth.maxTextChars, '10000'),
     'synth.concurrency': str(synth.concurrency, '4'),
     'synth.stream': Boolean(synth.stream),
+    'audio.format': str(audio.format, 'wav'),
+    'audio.bitrate': str(audio.bitrate, '64'),
     'cache.enabled': Boolean(cache.enabled),
     'cache.maxEntries': str(cache.maxEntries, '500'),
     'cache.ttlSeconds': str(cache.ttlSeconds, '7200'),
+    'cache.httpMaxAgeSeconds': str(cache.httpMaxAgeSeconds, '3600'),
     'limits.rpm': str(limits.rpm, '100'),
     'auth.enabled': Boolean(auth.enabled),
     'auth.user': str(auth.user),

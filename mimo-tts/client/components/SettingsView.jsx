@@ -741,9 +741,41 @@ export function SettingsView({
                   {knob('limits.rpm', '限速', 10, 300, 10, '/min', '每分钟请求上限')}
                 </div>
                 <div className="ctrl-row">
-                  <div className="cl"><b>流式返回</b><i>STREAM</i></div>
+                  <div className="cl"><b>流式返回</b><i>STREAM · 仅 WAV 有效</i></div>
                   {toggle('synth.stream', '流式返回')}
                 </div>
+                <div className="ctrl-row">
+                  <div className="cl">
+                    <b>默认输出格式</b>
+                    <i>{d['audio.format'] === 'opus' ? 'Opus 仅供 OpenAI 客户端，Legado 自动退回 WAV' : 'MP3 / Opus 需本机 ffmpeg；非 WAV 禁用流式'}</i>
+                  </div>
+                  <Seg
+                    options={[
+                      { value: 'wav', label: 'WAV' },
+                      { value: 'mp3', label: 'MP3' },
+                      { value: 'opus', label: 'Opus' },
+                    ]}
+                    value={d['audio.format'] || 'wav'}
+                    ariaLabel="默认输出格式"
+                    onChange={(v) => onSet('audio.format', v)}
+                  />
+                </div>
+                {(d['audio.format'] === 'mp3' || d['audio.format'] === 'opus') && (
+                  <div className="ctrl-row">
+                    <div className="cl"><b>压缩码率</b><i>BITRATE (kbps)</i></div>
+                    <Seg
+                      options={[
+                        { value: '32', label: '32k' },
+                        { value: '48', label: '48k' },
+                        { value: '64', label: '64k' },
+                        { value: '128', label: '128k' },
+                      ]}
+                      value={String(d['audio.bitrate'] || '64')}
+                      ariaLabel="压缩码率"
+                      onChange={(v) => onSet('audio.bitrate', v)}
+                    />
+                  </div>
+                )}
               </div>
               <div>
                 <div className="knob-row">
@@ -754,6 +786,23 @@ export function SettingsView({
                 <div className="ctrl-row">
                   <div className="cl"><b>缓存</b><i>{`上限 ${fmtBytes(live?.cache?.maxBytes || 0)}`}</i></div>
                   {toggle('cache.enabled', '启用缓存')}
+                </div>
+                <div className="ctrl-row">
+                  <div className="cl">
+                    <b>HTTP 缓存头</b>
+                    <i>{Number(d['cache.httpMaxAgeSeconds'] ?? 3600) > 0 ? `ETag + private, max-age=${d['cache.httpMaxAgeSeconds']}` : 'no-store（禁用浏览器/代理缓存）'}</i>
+                  </div>
+                  <Seg
+                    options={[
+                      { value: '0', label: '禁用' },
+                      { value: '300', label: '5分' },
+                      { value: '3600', label: '1小时' },
+                      { value: '86400', label: '24小时' },
+                    ]}
+                    value={String(d['cache.httpMaxAgeSeconds'] ?? '3600')}
+                    ariaLabel="HTTP 缓存 max-age"
+                    onChange={(v) => onSet('cache.httpMaxAgeSeconds', v)}
+                  />
                 </div>
               </div>
             </div>,
@@ -831,14 +880,14 @@ export function SettingsView({
               </div>
               <div>
                 <div className="ctrl-row">
-                  <div className="cl"><b>MP3 请求处理策略</b><i>MP3 FALLBACK</i></div>
+                  <div className="cl"><b>无 ffmpeg / 异常格式处理</b><i>FALLBACK POLICY</i></div>
                   <Seg
                     options={[
                       { value: 'wav', label: 'WAV 回退' },
                       { value: 'strict', label: '严格 400' },
                     ]}
                     value={d['openaiServer.mp3Fallback'] || 'wav'}
-                    ariaLabel="MP3 格式回退策略"
+                    ariaLabel="格式回退策略"
                     onChange={(v) => onSet('openaiServer.mp3Fallback', v)}
                   />
                 </div>
@@ -1040,6 +1089,12 @@ export function SettingsView({
             <Rowx k="模型" v={provider === 'openai' ? String(d['upstream.openai.model'] || '—') : String(d['upstream.model'] || '—')} />
             <Rowx k="规则" v={d['textRules.enabled'] ? `${(d['textRules.items'] || []).length} 条` : '已关闭'} />
             <Rowx k="每段 / 并发" v={`${d['synth.maxSegmentChars'] || '—'} 字 / ${d['synth.concurrency'] || '—'} 路`} />
+            <Rowx
+              k="输出格式"
+              v={(d['audio.format'] || 'wav') === 'wav'
+                ? 'WAV'
+                : `${String(d['audio.format']).toUpperCase()} · ${d['audio.bitrate'] || '64'}k`}
+            />
             <Rowx k="限速" v={`${d['limits.rpm'] || '—'} 次/分`} />
             <Rowx k="缓存" v={`${d['cache.maxEntries'] || '—'} 条 · TTL ${ttlText(d['cache.ttlSeconds'])}`} />
             <Rowx k="OpenAI 端点" v={d['openaiServer.enabled'] ? '已开启' : '已关闭'} />

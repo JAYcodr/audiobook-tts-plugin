@@ -16,6 +16,7 @@ export function sendJson(res, status, payload, opts = {}) {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': body.length,
     'Cache-Control': 'no-store',
+    ...(opts.headers || {}),
   }
   if (opts.basic) headers['WWW-Authenticate'] = 'Basic realm="audiobook-tts"'
   res.writeHead(status, headers)

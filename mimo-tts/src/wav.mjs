@@ -112,7 +112,7 @@ function downmix(pcm, channels) {
 }
 
 /** 线性插值重采样（只在采样率不一致时兜底用） */
-function resample(pcm, from, to) {
+export function resample(pcm, from, to) {
   if (from === to) return pcm
   const srcFrames = pcm.length / 2
   const dstFrames = Math.max(1, Math.round((srcFrames * to) / from))

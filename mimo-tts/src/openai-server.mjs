@@ -5,10 +5,19 @@
  * 并复用完整文本切分 / 发音规则 / AudioCache / RpmGate / Metrics 合成管线。
  */
 import { clientKeyOf, safeEqual } from './auth.mjs'
+import {
+  computeResponseEtag,
+  computeSegmentKeys,
+  etagMatches,
+  resolveHttpCachePolicy,
+} from './cache.mjs'
 import { PRESET_VOICES } from './config.mjs'
+import { encodeHintHeader, humanizeError } from './hints.mjs'
 import { HttpInputError, readJson } from './http.mjs'
 import { toRequests } from './split.mjs'
-import { parseWav } from './wav.mjs'
+import { OPENAI_FORMATS, resolveFfmpegPath, transcodeWav } from './transcode.mjs'
+
+const EXPOSE_HEADERS = 'ETag, X-Cache, X-Audiobook-Duration-S, X-Audiobook-Source, X-Audiobook-Segments, X-Audiobook-Format-Fallback, X-Audiobook-Fallback-Reason, X-Audiobook-Hint'
 
 const OPENAI_MODELS = [
   { id: 'audiobook-tts', object: 'model', created: 1700000000, owned_by: 'audiobook-tts-plugin' },
@@ -20,24 +29,30 @@ const OPENAI_MODELS = [
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-API-Key',
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-API-Key, If-None-Match',
+  'Access-Control-Expose-Headers': EXPOSE_HEADERS,
 }
 
-function sendOpenAiJson(res, status, payload) {
+function sendOpenAiJson(res, status, payload, extraHeaders = {}) {
   const body = Buffer.from(JSON.stringify(payload, null, 2))
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': body.length,
     'Cache-Control': 'no-store',
     'Access-Control-Allow-Origin': '*',
+    'Access-Control-Expose-Headers': EXPOSE_HEADERS,
+    ...extraHeaders,
   })
   res.end(body)
 }
 
-function sendOpenAiError(res, status, message, type = 'invalid_request_error', code = 'invalid_request') {
+function sendOpenAiError(res, status, message, type = 'invalid_request_error', code = 'invalid_request', hint = '') {
+  const extra = {}
+  const encodedHint = encodeHintHeader(hint)
+  if (encodedHint) extra['X-Audiobook-Hint'] = encodedHint
   sendOpenAiJson(res, status, {
     error: { message, type, code },
-  })
+  }, extra)
 }
 
 function extractBearerToken(req) {
@@ -159,7 +174,8 @@ export function createOpenAiServerHandler({ service }) {
     }
 
     if (!authorizeOpenAiRequest(req, cfg)) {
-      sendOpenAiError(res, 401, 'Invalid API key', 'authentication_error', 'invalid_api_key')
+      const diag = humanizeError(401, { endpointAuth: true })
+      sendOpenAiError(res, 401, 'Invalid API key', 'authentication_error', 'invalid_api_key', diag.hint)
       return true
     }
 
@@ -178,7 +194,9 @@ export function createOpenAiServerHandler({ service }) {
     }
 
     if (!service.listening) {
-      sendOpenAiError(res, 503, 'TTS service is not running', 'service_unavailable_error', 'service_stopped')
+      const diag = humanizeError(Object.assign(new Error('服务未启动'), { code: 'service_stopped', status: 503 }))
+      service.metrics.noteError(diag)
+      sendOpenAiError(res, 503, 'TTS service is not running', 'service_unavailable_error', 'service_stopped', diag.hint)
       return true
     }
 
@@ -203,26 +221,32 @@ export function createOpenAiServerHandler({ service }) {
     }
     const maxChars = Number(cfg.synth?.maxTextChars) || 10000
     if (text.length > maxChars) {
+      const diag = humanizeError(413, { maxTextChars: maxChars })
+      service.metrics.noteError(diag)
       sendOpenAiError(
         res,
         413,
         `input length (${text.length}) exceeds maxTextChars (${maxChars})`,
         'invalid_request_error',
         'input_too_long',
+        diag.hint,
       )
       return true
     }
 
-    const rawFmt = String(body.response_format ?? 'wav').trim().toLowerCase() || 'wav'
+    const rawFmt = String(body.response_format ?? cfg.audio?.format ?? 'wav').trim().toLowerCase() || 'wav'
+    const fallbackPolicy = cfg.openaiServer?.mp3Fallback || 'wav'
+    const transcodeOpts = service.transcodeOpts || {}
     let targetFmt = rawFmt
     let formatFallback = false
-    if (rawFmt !== 'wav' && rawFmt !== 'pcm') {
-      const fallbackPolicy = cfg.openaiServer?.mp3Fallback || 'wav'
+    let fallbackReason = ''
+
+    if (!OPENAI_FORMATS.has(rawFmt)) {
       if (fallbackPolicy === 'strict') {
         sendOpenAiError(
           res,
           400,
-          `Unsupported response_format "${rawFmt}". Supported formats: wav, pcm.`,
+          `Unsupported response_format "${rawFmt}". Supported formats: wav, pcm, mp3, opus.`,
           'invalid_request_error',
           'unsupported_format',
         )
@@ -230,6 +254,21 @@ export function createOpenAiServerHandler({ service }) {
       }
       targetFmt = 'wav'
       formatFallback = true
+      fallbackReason = 'unsupported_format'
+    } else if ((rawFmt === 'mp3' || rawFmt === 'opus') && !resolveFfmpegPath(transcodeOpts)) {
+      if (fallbackPolicy === 'strict') {
+        sendOpenAiError(
+          res,
+          400,
+          `Format "${rawFmt}" requires ffmpeg on host, which is not available.`,
+          'invalid_request_error',
+          'unsupported_format',
+        )
+        return true
+      }
+      targetFmt = 'wav'
+      formatFallback = true
+      fallbackReason = 'ffmpeg_missing'
     }
 
     const model = String(body.model || cfg.openaiServer?.defaultModel || 'audiobook-tts').trim() || 'audiobook-tts'
@@ -254,12 +293,35 @@ export function createOpenAiServerHandler({ service }) {
         : 'mixed'
     const clientKey = clientKeyOf(req)
     const started = Date.now()
-    const isPcm = targetFmt === 'pcm'
-    const metricFormat = isPcm ? 'openai-pcm' : 'openai-wav'
+    const metricFormat = `openai-${targetFmt}`
 
     service.metrics.touch(clientKey, { text: text.slice(0, 60), chars: text.length, bookId: model })
 
     try {
+      const provider = service.activeProvider()
+      const synthCtx = { clientKey, started, speed: legadoSpeed, openaiSpeed, config: cfg }
+      const cachePolicy = resolveHttpCachePolicy(cfg.cache)
+      const allowHttpCache = cachePolicy.enabled && !formatFallback
+      const segKeys = allowHttpCache ? computeSegmentKeys(provider, requests, synthCtx) : []
+      const etag = allowHttpCache
+        ? computeResponseEtag({
+            segmentKeys: segKeys,
+            format: targetFmt,
+            bitrate: cfg.audio?.bitrate ?? 64,
+          })
+        : ''
+      if (etag && etagMatches(req.headers?.['if-none-match'], etag)) {
+        res.writeHead(304, {
+          'Cache-Control': cachePolicy.cacheControl,
+          ETag: etag,
+          'X-Cache': 'HIT',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Expose-Headers': EXPOSE_HEADERS,
+        })
+        res.end()
+        return true
+      }
+
       const { wav, durationSec, hits, source } = await service.synthesize(requests, {
         clientKey,
         started,
@@ -267,19 +329,23 @@ export function createOpenAiServerHandler({ service }) {
         openaiSpeed,
       })
 
-      let outBuf = wav
-      let contentType = 'audio/wav'
-      let finalDurationSec = durationSec
-
-      if (isPcm) {
-        const parsed = parseWav(wav)
-        outBuf = parsed.pcm
-        contentType = 'audio/pcm'
-        if (Number.isFinite(parsed.durationSec) && parsed.durationSec > 0) {
-          finalDurationSec = parsed.durationSec
-        }
+      const tx = await transcodeWav(wav, {
+        format: targetFmt,
+        bitrate: cfg.audio?.bitrate ?? 64,
+        ...transcodeOpts,
+      })
+      const outBuf = tx.buffer
+      const contentType = tx.contentType
+      const finalDurationSec = Number.isFinite(tx.durationSec) && tx.durationSec > 0
+        ? tx.durationSec
+        : durationSec
+      if (tx.fallback) {
+        formatFallback = true
+        fallbackReason = fallbackReason || tx.reason || 'transcode_failed'
+        service.log(`[audio] OpenAI ${targetFmt} 转码回退 WAV（reason=${fallbackReason}${tx.error ? `: ${tx.error}` : ''}）`)
       }
 
+      const cacheHit = cfg.cache?.enabled !== false && requests.length > 0 && hits === requests.length
       const latency = Date.now() - started
       service.metrics.record({
         chars: text.length,
@@ -287,30 +353,40 @@ export function createOpenAiServerHandler({ service }) {
         bytes: outBuf.length,
         audioSeconds: finalDurationSec,
         latencyMs: latency,
-        cacheHit: hits === requests.length,
+        cacheHit,
         client: clientKey,
         bookId: model,
         role,
         text: text.slice(0, 60),
-        format: metricFormat,
+        format: `openai-${tx.format}`,
         source,
       })
 
       const headers = {
         'Content-Type': contentType,
         'Content-Length': outBuf.length,
-        'Cache-Control': 'no-store',
+        'Cache-Control': (!formatFallback && cachePolicy.enabled) ? cachePolicy.cacheControl : 'no-store',
+        'X-Cache': cacheHit ? 'HIT' : 'MISS',
         'Access-Control-Allow-Origin': '*',
+        'Access-Control-Expose-Headers': EXPOSE_HEADERS,
         'X-Audiobook-Duration-S': finalDurationSec.toFixed(2),
         'X-Audiobook-Source': source,
         'X-Audiobook-Segments': String(requests.length),
       }
-      if (formatFallback) headers['X-Audiobook-Format-Fallback'] = 'wav'
+      if (!formatFallback && etag) headers.ETag = etag
+      if (formatFallback) {
+        headers['X-Audiobook-Format-Fallback'] = 'wav'
+        if (fallbackReason) headers['X-Audiobook-Fallback-Reason'] = fallbackReason
+      }
 
       res.writeHead(200, headers)
       res.end(outBuf)
       return true
     } catch (err) {
+      const diagCtx = typeof service.diagnosticContext === 'function'
+        ? service.diagnosticContext()
+        : { provider: service.provider, maxTextChars: cfg.synth?.maxTextChars }
+      const diag = humanizeError(err, diagCtx)
       const latency = Date.now() - started
       service.metrics.record({
         chars: text.length,
@@ -318,19 +394,25 @@ export function createOpenAiServerHandler({ service }) {
         bytes: 0,
         latencyMs: latency,
         error: true,
+        errorStatus: diag.httpStatus,
+        errorCode: diag.code,
+        errorMessage: diag.message,
+        errorHint: diag.hint,
+        errorAction: diag.action,
         client: clientKey,
         bookId: model,
         role,
         text: text.slice(0, 60),
         format: metricFormat,
       })
-      service.log(`[error] OpenAI TTS 合成失败: ${err?.message || err}`)
+      service.log(`[error] OpenAI TTS 合成失败 (${diag.httpStatus}/${diag.code}): ${err?.message || err}`)
       sendOpenAiError(
         res,
-        502,
-        String(err?.message || err),
+        diag.httpStatus,
+        diag.message || String(err?.message || err),
         'upstream_error',
-        err?.code || 'synthesis_failed',
+        diag.code || err?.code || 'synthesis_failed',
+        `${diag.message}：${diag.hint}`,
       )
       return true
     }

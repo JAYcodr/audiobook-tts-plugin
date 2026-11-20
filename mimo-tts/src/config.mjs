@@ -94,11 +94,17 @@ export const DEFAULTS = {
     // true  = 返回长度未知的流式 WAV（首音更快，但 Legado 的时长/翻页会失真）
     stream: false,
   },
+  // 输出音频封装与有损压缩选项（mp3/opus 依赖本机 ffmpeg；无 ffmpeg 自动回退 wav）
+  audio: {
+    format: 'wav',
+    bitrate: 64,
+  },
   cache: {
     enabled: true,
     maxEntries: 500,
     maxBytes: 512 * 1024 * 1024,
     ttlSeconds: 7200,
+    httpMaxAgeSeconds: 3600,
   },
   // 导出的 Legado 引擎里附带的自定义请求头（例如 Cloudflare Access 服务令牌）
   legado: {
@@ -377,8 +383,11 @@ const ENV_KEYS = {
   'DIALOGUE_STYLE': (c, v) => { c.voices.dialogue.style = v },
   'MAX_MERGE_LEN': (c, v) => { c.synth.maxSegmentChars = Number(v) },
   'STREAM_ENABLED': (c, v) => { c.synth.stream = String(v).toLowerCase() === 'true' },
+  'AUDIO_FORMAT': (c, v) => { c.audio.format = String(v).trim().toLowerCase() },
+  'AUDIO_BITRATE': (c, v) => { c.audio.bitrate = Number(v) },
   'CACHE_MAX_SIZE': (c, v) => { c.cache.maxEntries = Number(v) },
   'CACHE_TTL_SECONDS': (c, v) => { c.cache.ttlSeconds = Number(v) },
+  'CACHE_HTTP_MAX_AGE': (c, v) => { c.cache.httpMaxAgeSeconds = Number(v) },
   'OPENAI_SERVER_ENABLED': (c, v) => {
     c.openaiServer.enabled = ['1', 'true', 'yes'].includes(String(v).trim().toLowerCase())
   },
@@ -488,6 +497,28 @@ export function validate(cfg, ctx = {}) {
     const rms = Number(h.targetRms)
     if (Number(h.targetRms) !== 0 && (!Number.isFinite(rms) || rms < 0.02 || rms > 0.4)) {
       problems.push('混合启动 targetRms 必须是 0 或 0.02–0.4')
+    }
+  }
+  if (cfg.audio !== undefined) {
+    const au = cfg.audio
+    if (!au || typeof au !== 'object' || Array.isArray(au)) {
+      problems.push('audio 必须是对象')
+    } else {
+      if (au.format !== undefined && !['wav', 'mp3', 'opus'].includes(au.format)) {
+        problems.push('audio.format 仅允许 wav / mp3 / opus')
+      }
+      if (au.bitrate !== undefined) {
+        const br = Number(au.bitrate)
+        if (![32, 48, 64, 128].includes(br)) {
+          problems.push('audio.bitrate 仅允许 32 / 48 / 64 / 128')
+        }
+      }
+    }
+  }
+  if (cfg.cache?.httpMaxAgeSeconds !== undefined) {
+    const maxAge = Number(cfg.cache.httpMaxAgeSeconds)
+    if (!Number.isFinite(maxAge) || maxAge < 0 || maxAge > 86400) {
+      problems.push('cache.httpMaxAgeSeconds 必须是 0–86400 秒')
     }
   }
   if (cfg.openaiServer !== undefined) {

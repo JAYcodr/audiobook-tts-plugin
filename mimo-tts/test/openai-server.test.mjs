@@ -266,7 +266,8 @@ test('POST /v1/audio/speech 复用规则切分/缓存/计量，支持 wav/pcm/mp
     assert.equal(svc.metrics.snapshot().recent.at(-1).format, 'openai-pcm')
     assert.match(captured.at(-1).style, /语速偏慢/)
 
-    // 4) mp3 默认兼容回退 WAV，并附 X-Audiobook-Format-Fallback: wav
+    // 4) 无 ffmpeg 时 mp3 默认兼容回退 WAV，并附 X-Audiobook-Format-Fallback: wav
+    svc.transcodeOpts = { findBinaryImpl: () => '' }
     const resMp3Fallback = await callSvc(svc, {
       method: 'POST',
       url: '/v1/audio/speech',
@@ -276,9 +277,10 @@ test('POST /v1/audio/speech 复用规则切分/缓存/计量，支持 wav/pcm/mp
     assert.equal(resMp3Fallback.status, 200)
     assert.equal(resMp3Fallback.headers['Content-Type'], 'audio/wav')
     assert.equal(resMp3Fallback.headers['X-Audiobook-Format-Fallback'], 'wav')
+    assert.equal(resMp3Fallback.headers['X-Audiobook-Fallback-Reason'], 'ffmpeg_missing')
     assert.equal(captured.at(-1).voice, '冰糖')
 
-    // 5) mp3 strict 模式返回 400
+    // 5) 无 ffmpeg 或不支持格式时 strict 模式返回 400
     store.update({ openaiServer: { mp3Fallback: 'strict' } })
     const resMp3Strict = await callSvc(svc, {
       method: 'POST',
@@ -288,6 +290,7 @@ test('POST /v1/audio/speech 复用规则切分/缓存/计量，支持 wav/pcm/mp
     })
     assert.equal(resMp3Strict.status, 400)
     assert.equal(JSON.parse(resMp3Strict.bodyText).error.code, 'unsupported_format')
+    svc.transcodeOpts = {}
 
     // 6) 超长文本 413 与空文本 400
     const resTooLong = await callSvc(svc, {

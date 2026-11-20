@@ -88,7 +88,7 @@ export class TTSProvider {
           throw err
         }
       }
-      this.cache.set(key, wav)
+      if (wav && !wav._noCache) this.cache.set(key, wav)
       results[i] = wav
     })
 

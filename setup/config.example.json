@@ -71,11 +71,16 @@
     "concurrency": 4,
     "stream": false
   },
+  "audio": {
+    "format": "wav",
+    "bitrate": 64
+  },
   "cache": {
     "enabled": true,
     "maxEntries": 500,
     "maxBytes": 536870912,
-    "ttlSeconds": 7200
+    "ttlSeconds": 7200,
+    "httpMaxAgeSeconds": 3600
   },
   "legado": {
     "name": "听书值守 TTS",

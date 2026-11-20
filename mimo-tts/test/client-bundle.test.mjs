@@ -286,6 +286,8 @@ test('前端配置草稿保留旧掩码 Key 并支持 textRules / voiceProfiles 
     'voices.narrator.mode': 'clone',
     'voices.narrator.refId': 'builtin:narrator-14s',
     'textRules.items': [{ id: 'r1', name: 'test', pattern: 'a', replace: 'b', scope: 'all', regex: false, enabled: true }],
+    'audio.format': 'mp3',
+    'audio.bitrate': '128',
     'openaiServer.enabled': true,
     'openaiServer.mp3Fallback': 'strict',
     'openaiServer.voiceMap': { alloy: 'auto', customNew: '冰糖' },
@@ -300,6 +302,8 @@ test('前端配置草稿保留旧掩码 Key 并支持 textRules / voiceProfiles 
   assert.equal(patch.voices.narrator.mode, 'clone')
   assert.equal(patch.voices.narrator.refId, 'builtin:narrator-14s')
   assert.equal(patch.textRules.items.length, 1)
+  assert.equal(patch.audio.format, 'mp3')
+  assert.equal(patch.audio.bitrate, 128)
   assert.equal(patch.openaiServer.enabled, true)
   assert.equal(patch.openaiServer.apiKey, undefined, '未修改的掩码 openaiServer.apiKey 不应写回')
   assert.equal(patch.openaiServer.mp3Fallback, 'strict')
@@ -311,6 +315,8 @@ test('前端配置草稿保留旧掩码 Key 并支持 textRules / voiceProfiles 
   const snap = buildDraftSnapshot(draft)
   assert.equal(snap.voices.narrator.refId, 'builtin:narrator-14s')
   assert.equal(snap.textRules.items[0].replace, 'b')
+  assert.equal(snap.audio.format, 'mp3')
+  assert.equal(snap.audio.bitrate, 128)
   assert.equal(snap.openaiServer.mp3Fallback, 'strict')
   assert.equal(snap.tunnel.protocol, 'quic')
 })

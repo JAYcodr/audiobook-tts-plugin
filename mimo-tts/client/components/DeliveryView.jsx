@@ -9,12 +9,13 @@ import { Rowx } from './Primitives.jsx'
 import { QrCard } from './QrCard.jsx'
 
 export function DeliveryView({
-  service, config, importInfo, tunnel, onRefreshState, onOpenSettings,
-  onCopy, onExportConfig, onOpenSetup, showToast,
+  service, live, config, importInfo, tunnel, onRefreshState, onOpenSettings,
+  onCopy, onExportConfig, onOpenSetup, onDiagAction, showToast,
 }) {
   const [shareBusy, setShareBusy] = useState(false)
   const imp = importInfo || {}
   const cfg = config || {}
+  const lastErr = live?.lastError && !live.lastError.resolved ? live.lastError : null
   const running = Boolean(service?.running)
   const hasToken = Boolean(imp.hasToken)
   const shareUrl = imp.shareBestJsonUrl || imp.sharePublicJsonUrl || imp.shareRelayJsonUrl || imp.shareQuickJsonUrl || imp.shareJsonUrl || ''
@@ -384,6 +385,37 @@ export function DeliveryView({
             </div>
           ))}
         </div>
+        {lastErr && (
+          <div className="errcodes" data-testid="last-error-diagnostic" style={{ borderColor: 'var(--grease)', background: 'rgba(177, 58, 34, 0.06)' }}>
+            <span className="silk" style={{ marginBottom: 3, color: 'var(--grease)' }}>
+              LAST ERROR <b>最近一次异常 ({lastErr.status})</b>
+            </span>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>{lastErr.message}</div>
+            {lastErr.hint && <div style={{ fontSize: 11, opacity: 0.85, marginBottom: 6 }}>{lastErr.hint}</div>}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {lastErr.action === 'switch-local' && (
+                <button className="btn btn--sm btn--tape" type="button" onClick={() => onDiagAction?.('switch-local')}>
+                  一键切到本地 Qwen3
+                </button>
+              )}
+              {lastErr.action === 'start-service' && (
+                <button className="btn btn--sm btn--tape" type="button" onClick={() => onDiagAction?.('start-service')}>
+                  立即启动服务
+                </button>
+              )}
+              {lastErr.action === 'open-setup' && (
+                <button className="btn btn--sm" type="button" onClick={onOpenSetup}>
+                  打开体检修复
+                </button>
+              )}
+              {(lastErr.action === 'open-settings' || lastErr.action === 'switch-local') && (
+                <button className="btn btn--sm" type="button" onClick={onOpenSettings}>
+                  前往渲染设置
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         <div className="errcodes">
           <span className="silk" style={{ marginBottom: 3 }}>ERROR CODES <b>错误码</b></span>
           {ERR_CODES.map(([code, fix]) => (

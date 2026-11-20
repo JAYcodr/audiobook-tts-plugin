@@ -12,11 +12,11 @@
 import { readFileSync, statSync } from 'node:fs'
 import { extname } from 'node:path'
 import { createHash } from 'node:crypto'
-import { ProviderError, TTSProvider } from './base.mjs'
+import { ProviderError, TTSProvider, runLimited } from './base.mjs'
 import { cacheKey } from '../cache.mjs'
 import { expandHomePath } from '../paths.mjs'
 import { computeRefsDigest } from '../refs-store.mjs'
-import { parseWav, silentWav, streamingWavHeader } from '../wav.mjs'
+import { encodeWav, parseWav, resample, silentWav, streamingWavHeader } from '../wav.mjs'
 
 const MAX_STREAM_BYTES = 64 * 1024 * 1024
 
@@ -180,16 +180,18 @@ export class MimoClient {
    * 流式：yield PCM16 分片（24kHz 单声道）。
    * 只在预置音色下有意义 —— voicedesign / voiceclone 会上游降级成「一次性返回」。
    */
-  async *synthesizeStream(req) {
+  async *synthesizeStream(req, { signal = null } = {}) {
     const up = this.cfg()
     const payload = this.buildPayload(req, 'pcm16')
     payload.stream = true
     const key = this.pool.acquire()
+    const timeoutSig = AbortSignal.timeout(up.timeoutMs || 60_000)
+    const reqSignal = signal ? AbortSignal.any([signal, timeoutSig]) : timeoutSig
     const res = await fetch(`${up.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { 'api-key': key, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(up.timeoutMs),
+      signal: reqSignal,
     })
     if (!res.ok || !res.body) {
       this.pool.report(key, res.status)
@@ -239,7 +241,7 @@ export class MimoProvider extends TTSProvider {
   }
 
   supportsStreaming(requests) {
-    return Array.isArray(requests) && requests.length > 1
+    return Array.isArray(requests) && requests.length >= 1
       && requests.every((r) => (r.mode || 'preset') === 'preset')
   }
 
@@ -345,13 +347,27 @@ export class MimoProvider extends TTSProvider {
   }
 
   async synthesizeBatch(requests, ctx = {}) {
-    return super.synthesizeBatch(requests, {
+    const fatalStatuses = new Set([401, 402, 403, 413])
+    let failedCount = 0
+    let lastSegErr = null
+    const out = await super.synthesizeBatch(requests, {
       ...ctx,
       onSegmentError: (err, idx) => {
+        if (fatalStatuses.has(err?.status) || !this.client.pool.size) {
+          throw err
+        }
+        failedCount++
+        lastSegErr = err
         this.log(`[warn] 段 ${idx + 1} 失败，插入静音: ${err?.message || err}`)
-        return silentWav(0.4)
+        const sil = silentWav(0.4)
+        sil._noCache = true
+        return sil
       },
     })
+    if (failedCount >= requests.length && lastSegErr) {
+      throw lastSegErr
+    }
+    return out
   }
 
   /** 用本地配置里的参考音走 MiMo clone（供混合启动与纯克隆调用）。 */
@@ -372,61 +388,162 @@ export class MimoProvider extends TTSProvider {
     return computeRefsDigest(local.refs, this.refsStore)
   }
 
-  /** 流式响应：先发长度未知的头，再按顺序把已完成的段拼上去。 */
+  /**
+   * 真·流式响应：
+   *   - 第 0 段优先走 `synthesizeStream()`（SSE pcm16 分片直出），抢到首包第一时间发往客户端；
+   *   - 剩余段按并发上限并行整段合成，按顺序追加到同一个流式 WAV 响应；
+   *   - 全部成功后各自入缓存，任何流式异常都写入 0.4s 静音 PCM 兜底（不写脏缓存）。
+   */
   async respondStreaming(res, requests, meta, metrics) {
-    const pending = requests.map(async (req) => {
-      const key = cacheKey(this.cacheDescriptor(req))
-      const cached = this.cache.get(key)
-      if (cached) return cached
-      await this.gate.acquire()
-      try {
-        const wav = await this.synthesizeSegment(req)
-        this.cache.set(key, wav)
-        return wav
-      } catch {
-        return silentWav(0.4)
-      }
-    })
+    const cfg = this.getConfig()
+    const sourceTag = meta?.source || this.id
+    const concurrency = Math.max(1, Math.min(8, Number(cfg.synth?.concurrency) || 4))
+    const abortCtrl = new AbortController()
+    const onClose = () => abortCtrl.abort()
+    res.on?.('close', onClose)
 
-    res.writeHead(200, {
-      'Content-Type': 'audio/wav',
-      'Cache-Control': 'no-store',
-      'X-Mimo-Segments': String(requests.length),
+    // 先把第 1..N-1 段排队（受并发控制），与第 0 段流式同时起跑
+    const tailSlots = requests.slice(1).map((req) => {
+      let resolveSlot
+      const promise = new Promise((resolve) => { resolveSlot = resolve })
+      const key = cacheKey(this.cacheDescriptor(req))
+      const run = async () => {
+        const cached = this.cache.get(key)
+        if (cached) {
+          resolveSlot({ wav: cached, hit: true })
+          return
+        }
+        if (this.gate) await this.gate.acquire()
+        try {
+          const wav = await this.synthesizeSegment(req)
+          this.cache.set(key, wav)
+          resolveSlot({ wav, hit: false })
+        } catch (err) {
+          this.log(`[warn] 流式后续段失败，插入静音: ${err?.message || err}`)
+          resolveSlot({ wav: silentWav(0.4), hit: false })
+        }
+      }
+      return { promise, run }
     })
+    const tailRunning = tailSlots.length
+      ? runLimited(tailSlots.map((s) => s.run), concurrency)
+      : Promise.resolve()
+
     let sampleRate = 24000
     let wroteHeader = false
     let totalBytes = 0
     let seconds = 0
-    for (const p of pending) {
-      const wav = await p
-      let parsed
-      try { parsed = parseWav(wav) } catch { parsed = null }
-      if (!wroteHeader) {
-        sampleRate = parsed?.sampleRate || 24000
-        res.write(streamingWavHeader(sampleRate, 1, 16))
-        wroteHeader = true
-      }
-      if (!parsed) continue
-      res.write(parsed.pcm)
-      totalBytes += parsed.pcm.length
-      seconds += parsed.durationSec
-    }
-    if (!wroteHeader) res.write(streamingWavHeader(sampleRate, 1, 16))
-    res.end()
+    let hits = 0
 
-    metrics?.record({
-      chars: meta.text.length,
-      segments: requests.length,
-      bytes: totalBytes,
-      audioSeconds: seconds,
-      latencyMs: Date.now() - meta.started,
-      client: meta.clientKey,
-      bookId: meta.bookId,
-      role: meta.role,
-      text: meta.text.slice(0, 60),
-      format: 'wav-stream',
-      source: 'mimo',
-    })
+    const ensureHeaders = (sr = 24000) => {
+      if (wroteHeader) return
+      sampleRate = sr || 24000
+      res.writeHead(200, {
+        'Content-Type': 'audio/wav',
+        'Cache-Control': 'no-store',
+        'X-Mimo-Segments': String(requests.length),
+        'X-Mimo-Source': sourceTag,
+      })
+      res.write(streamingWavHeader(sampleRate, 1, 16))
+      wroteHeader = true
+    }
+
+    const writeSilenceFallback = () => {
+      ensureHeaders(sampleRate)
+      const silPcm = Buffer.alloc(Math.round(sampleRate * 0.4) * 2)
+      res.write(silPcm)
+      totalBytes += silPcm.length
+      seconds += 0.4
+    }
+
+    try {
+      // 第 0 段：命中缓存直接输出；未命中走真 SSE synthesizeStream()
+      const req0 = requests[0]
+      if (req0) {
+        const key0 = cacheKey(this.cacheDescriptor(req0))
+        const cached0 = this.cache.get(key0)
+        if (cached0) {
+          hits++
+          let parsed0 = null
+          try { parsed0 = parseWav(cached0) } catch { parsed0 = null }
+          if (parsed0) {
+            ensureHeaders(parsed0.sampleRate || 24000)
+            res.write(parsed0.pcm)
+            totalBytes += parsed0.pcm.length
+            seconds += parsed0.durationSec
+          } else {
+            writeSilenceFallback()
+          }
+        } else {
+          if (this.gate) await this.gate.acquire()
+          const seg0Chunks = []
+          let seg0Ok = true
+          try {
+            for await (const chunk of this.client.synthesizeStream(req0, { signal: abortCtrl.signal })) {
+              if (!chunk?.length) continue
+              ensureHeaders(24000)
+              res.write(chunk)
+              seg0Chunks.push(chunk)
+              totalBytes += chunk.length
+              seconds += chunk.length / 2 / sampleRate
+            }
+          } catch (err) {
+            seg0Ok = false
+            if (!abortCtrl.signal.aborted) {
+              this.log(`[warn] 流式首段失败，写入静音 PCM 兜底：${err?.message || err}`)
+            }
+          }
+          if (seg0Ok && seg0Chunks.length > 0) {
+            const fullPcm = Buffer.concat(seg0Chunks)
+            this.cache.set(key0, encodeWav(fullPcm, sampleRate, 1, 16))
+          } else if (!abortCtrl.signal.aborted) {
+            writeSilenceFallback()
+          }
+        }
+      }
+
+      // 第 1..N-1 段按序写出
+      for (const slot of tailSlots) {
+        if (abortCtrl.signal.aborted) break
+        const { wav, hit } = await slot.promise
+        if (hit) hits++
+        let parsed
+        try { parsed = parseWav(wav) } catch { parsed = null }
+        if (!parsed || !parsed.pcm?.length) {
+          writeSilenceFallback()
+          continue
+        }
+        ensureHeaders(parsed.sampleRate || 24000)
+        const pcm = parsed.sampleRate === sampleRate
+          ? parsed.pcm
+          : resample(parsed.pcm, parsed.sampleRate, sampleRate)
+        res.write(pcm)
+        totalBytes += pcm.length
+        seconds += pcm.length / 2 / sampleRate
+      }
+
+      await tailRunning.catch(() => {})
+      if (!wroteHeader) ensureHeaders(sampleRate)
+      res.end()
+
+      metrics?.record({
+        chars: meta.text.length,
+        segments: requests.length,
+        bytes: totalBytes,
+        audioSeconds: seconds,
+        latencyMs: Date.now() - meta.started,
+        cacheHit: hits === requests.length,
+        client: meta.clientKey,
+        bookId: meta.bookId,
+        role: meta.role,
+        text: meta.text.slice(0, 60),
+        format: 'wav-stream',
+        source: sourceTag,
+      })
+      return { durationSec: seconds, bytes: totalBytes, hits, source: sourceTag }
+    } finally {
+      res.off?.('close', onClose)
+    }
   }
 
   status() {

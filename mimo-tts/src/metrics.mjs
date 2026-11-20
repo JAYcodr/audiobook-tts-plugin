@@ -106,6 +106,7 @@ export class Metrics {
     this.active = new Map()
     this.clients = new Map()
     this.totals = EMPTY_TOTALS()
+    this.lastError = null
   }
 
   /** 启动时从磁盘恢复统计历史（主文件损坏或丢失时自动从 .bak 恢复）。 */
@@ -237,7 +238,23 @@ export class Metrics {
     this.active.clear()
     this.clients.clear()
     this.totals = EMPTY_TOTALS()
+    this.lastError = null
     this.flush()
+  }
+
+  /** 记录最近一次请求/环境诊断信息（供交付页与时间线展示）。 */
+  noteError(diag) {
+    if (!diag) return null
+    this.lastError = {
+      at: Date.now(),
+      status: Number(diag.httpStatus || diag.status) || 502,
+      code: String(diag.code || 'error'),
+      message: String(diag.message || ''),
+      hint: String(diag.hint || ''),
+      action: String(diag.action || ''),
+      resolved: false,
+    }
+    return this.lastError
   }
 
   /** 一次 /listening 请求结束时调用 */
@@ -246,6 +263,18 @@ export class Metrics {
     const item = { at: t, ...ev }
     this.recent.push(item)
     if (this.recent.length > this.ringSize) this.recent.shift()
+
+    if (ev.error) {
+      this.noteError({
+        status: ev.errorStatus || 502,
+        code: ev.errorCode || 'synthesis_failed',
+        message: ev.errorMessage || '',
+        hint: ev.errorHint || '',
+        action: ev.errorAction || '',
+      })
+    } else if (this.lastError && !this.lastError.resolved) {
+      this.lastError.resolved = true
+    }
 
     this.totals.requests++
     this.totals.segments += ev.segments || 0
@@ -316,6 +345,7 @@ export class Metrics {
       active: this.activeReaders(),
       clients: [...this.clients.values()].sort((a, b) => b.lastAt - a.lastAt).slice(0, 6),
       recent: this.recent.slice(-40),
+      lastError: this.lastError,
     }
   }
 }

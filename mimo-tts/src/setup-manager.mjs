@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { lanAddresses } from './auth.mjs'
 import { DEFAULT_MIN_MODEL_BYTES, DEFAULT_MIN_VOCODER_BYTES, validateModelDir } from './local.mjs'
-import { expandHomePath, resolveRepoRoot } from './paths.mjs'
+import { expandHomePath, findBinary, resolveRepoRoot } from './paths.mjs'
 import { detectHttpsTools } from './tunnel-manager.mjs'
 
 const DEFAULT_SIDECAR_SCRIPT = fileURLToPath(new URL('../sidecar/server.py', import.meta.url))
@@ -391,6 +391,27 @@ export async function runDoctor({
       label: 'OpenAI 端点状态',
       status: 'pass',
       message: '已关闭（默认安全模式，仅暴露 Legado 接口）',
+    })
+  }
+
+  const ffmpegPath = findBinary('ffmpeg', probe)
+  const audioFmt = String(cfg.audio?.format || 'wav').trim().toLowerCase()
+  if (ffmpegPath) {
+    checks.push({
+      id: 'ffmpeg',
+      label: '音频转码器 ffmpeg',
+      status: 'pass',
+      message: `已就绪（${ffmpegPath}，支持 MP3 / Opus 压缩输出）`,
+    })
+  } else {
+    checks.push({
+      id: 'ffmpeg',
+      label: '音频转码器 ffmpeg',
+      status: 'warn',
+      message: audioFmt !== 'wav'
+        ? `当前配置为 ${audioFmt}，但未检测到 ffmpeg（运行时将自动回退 WAV）`
+        : '未检测到 ffmpeg（仅影响 MP3 / Opus 压缩输出，默认 WAV 不受影响）',
+      hint: 'Mac 可运行 brew install ffmpeg，Linux 可运行 apt install ffmpeg',
     })
   }
 

@@ -8,10 +8,13 @@ export function legadoPayload(imp, cfg) {
   }
   const listen = String(imp?.listenUrl || '')
   const option = { method: 'POST', body: BODY_TEXT, header: headers }
+  const contentType = String(cfg?.audio?.format || 'wav').trim().toLowerCase() === 'mp3'
+    ? 'audio/mpeg'
+    : 'audio/wav'
   return [{
     name: cfg?.legado?.name || '听书值守 TTS',
     url: `${listen},${JSON.stringify(option)}`,
-    contentType: 'audio/wav',
+    contentType,
     concurrentRate: String(cfg?.synth?.concurrency || 4),
   }]
 }

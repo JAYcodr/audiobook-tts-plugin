@@ -532,6 +532,7 @@ export function Panel() {
     viewNode = (
       <DeliveryView
         service={service}
+        live={live}
         config={config}
         importInfo={state.import || {}}
         tunnel={state.tunnel || {}}
@@ -540,6 +541,16 @@ export function Panel() {
         onCopy={onCopy}
         onExportConfig={exportConfig}
         onOpenSetup={() => setSetupOpen(true)}
+        onDiagAction={async (action) => {
+          if (action === 'start-service') {
+            await act('start')
+            return
+          }
+          if (action === 'switch-local') {
+            await applySetupPatch({ upstream: { provider: 'local' } })
+            showToast('已切换渲染来源为：本地 Qwen3-TTS')
+          }
+        }}
         showToast={showToast}
       />
     )

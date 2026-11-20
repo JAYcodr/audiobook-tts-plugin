@@ -5,6 +5,7 @@
  */
 import { TTSProvider, runLimited } from './base.mjs'
 import { cacheKey } from '../cache.mjs'
+import { humanizeSwitchReason } from '../hints.mjs'
 import { computeRefsDigest } from '../refs-store.mjs'
 import { concatWavs, normalizeWav } from '../wav.mjs'
 
@@ -102,6 +103,7 @@ export class HybridProvider extends TTSProvider {
       localWarm: this.local.engine.isWarm(),
       lastSource: this.lastSource,
       lastSwitchReason: this.lastSwitchReason,
+      lastSwitchReasonText: humanizeSwitchReason(this.lastSwitchReason),
     }
   }
 
@@ -132,8 +134,8 @@ export class HybridProvider extends TTSProvider {
     return { wav, source: 'hybrid-cloud' }
   }
 
-  async synthesizeBatch(requests, ctx = {}) {
-    const cfg = this.getConfig()
+  /** 纯决策逻辑（commit=false 时无副作用，可供 supportsStreaming 预判）。 */
+  decideBatch(requests, ctx = {}, { commit = false } = {}) {
     const engine = this.local.engine
     const cloud = this.cloudAvailable()
     const now = Number(ctx.started) || Date.now()
@@ -150,13 +152,13 @@ export class HybridProvider extends TTSProvider {
       else if (repeat) resetReason = '回退/重读'
       else if (speedChanged) resetReason = '语速变化'
       if (resetReason) {
-        this.sessions.delete(ctx.clientKey)
+        if (commit && ctx.clientKey) this.sessions.delete(ctx.clientKey)
         session = null
       }
     }
 
     const localWarm = engine.isWarm()
-    if (localWarm) this.bootstrapCount = 0
+    if (commit && localWarm) this.bootstrapCount = 0
 
     let useLocal = false
     let reason = ''
@@ -190,9 +192,53 @@ export class HybridProvider extends TTSProvider {
       }
     }
 
-    this.lastSwitchReason = resetReason ? `${reason} (reset:${resetReason})` : reason
+    const switchReason = resetReason ? `${reason} (reset:${resetReason})` : reason
     const source = useLocal ? 'hybrid-local' : 'hybrid-cloud'
-    this.lastSource = source
+    if (commit) {
+      this.lastSwitchReason = switchReason
+      this.lastSource = source
+    }
+    return { useLocal, reason, switchReason, resetReason, localWarm, totalChars, fullText, source }
+  }
+
+  supportsStreaming(requests, ctx = {}) {
+    if (!Array.isArray(requests) || !requests.length || !this.cloudAvailable()) return false
+    const d = this.decideBatch(requests, ctx, { commit: false })
+    return !d.useLocal
+  }
+
+  async respondStreaming(res, requests, meta, metrics) {
+    const d = this.decideBatch(requests, meta, { commit: true })
+    if (!d.localWarm) {
+      this.bootstrapCount++
+      const warmReq = requests[0]
+      const timer = setTimeout(() => { this.maybeWarm(warmReq) }, 500)
+      timer.unref?.()
+    }
+    // 方案 A：混合冷启动走流式时优先使用预置音色真 SSE 抢 <1s 首包，待本地热后自动切回本地克隆音色
+    const streamReqs = requests.map((r) => (
+      (r.mode || 'preset') === 'preset'
+        ? r
+        : { ...r, mode: 'preset', voice: r.voice || (r.role === 'dialogue' ? '苏打' : '冰糖') }
+    ))
+    const out = await this.mimo.respondStreaming(res, streamReqs, { ...meta, source: 'hybrid-cloud' }, metrics)
+    this.lastSource = 'hybrid-cloud'
+    if (meta?.clientKey) {
+      this.sessions.update(meta.clientKey, {
+        durationSec: out?.durationSec || 0,
+        source: 'hybrid-cloud',
+        chars: d.totalChars,
+        text: d.fullText,
+        speed: meta.speed,
+      })
+    }
+    return out
+  }
+
+  async synthesizeBatch(requests, ctx = {}) {
+    const cfg = this.getConfig()
+    const engine = this.local.engine
+    const { useLocal, localWarm, totalChars, fullText, source } = this.decideBatch(requests, ctx, { commit: true })
 
     if (!useLocal && !localWarm) {
       this.bootstrapCount++

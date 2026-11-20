@@ -68,7 +68,7 @@ function buildFixtureState() {
       uptimeSec: 3842,
       version: '0.5.0',
       provider: 'hybrid',
-      hybrid: { enabled: true, cloudReady: true, bootstrapCount: 2, maxCloudBootstrap: 6, localWarm: true, lastSource: 'hybrid-local', lastSwitchReason: 'buffer-ok 16.6>=12.0' },
+      hybrid: { enabled: true, cloudReady: true, bootstrapCount: 2, maxCloudBootstrap: 6, localWarm: true, lastSource: 'hybrid-local', lastSwitchReason: 'buffer-ok 16.6>=12.0', lastSwitchReasonText: '缓冲充裕，已切回本地（16.6s ≥ 12.0s）' },
       openai: { ready: false },
       openaiServer: { enabled: true, defaultModel: 'audiobook-tts', mp3Fallback: 'wav' },
     },
@@ -127,7 +127,8 @@ function buildFixtureState() {
       voiceProfiles: { active: 'builtin:story-warm', items: [] },
       textRules: { enabled: true, polyphoneEnabled: true, disabledPresets: [], items: [BUILTIN_RULE_PRESETS[0], BUILTIN_RULE_PRESETS[1]] },
       synth: { maxSegmentChars: 100, maxTextChars: 10000, concurrency: 4, stream: false },
-      cache: { enabled: true, maxEntries: 500, maxBytes: 512 * 1024 * 1024, ttlSeconds: 7200 },
+      audio: { format: 'wav', bitrate: 64 },
+      cache: { enabled: true, maxEntries: 500, maxBytes: 512 * 1024 * 1024, ttlSeconds: 7200, httpMaxAgeSeconds: 3600 },
       legado: { name: '听书值守 TTS', extraHeaders: {} },
       auth: {
         enabled: true,

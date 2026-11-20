@@ -15,6 +15,46 @@ export function cacheKey({ text, voice, style, mode, model }) {
     .digest('hex')
 }
 
+export function computeSegmentKeys(provider, requests, ctx = {}) {
+  const fn = typeof provider?.cacheDescriptor === 'function'
+    ? (r) => provider.cacheDescriptor(r, ctx)
+    : null
+  return requests.map((req) => cacheKey(fn ? fn(req) : req))
+}
+
+export function computeResponseEtag({ segmentKeys = [], format = 'wav', bitrate = 64 } = {}) {
+  const fmt = String(format || 'wav').trim().toLowerCase() || 'wav'
+  const br = fmt === 'mp3' || fmt === 'opus' ? Number(bitrate) || 64 : 0
+  const hash = createHash('sha1')
+    .update(`${fmt}|${br}|${segmentKeys.join(',')}`)
+    .digest('hex')
+    .slice(0, 24)
+  return `"tts-${hash}"`
+}
+
+export function etagMatches(ifNoneMatch, etag) {
+  if (!ifNoneMatch || !etag) return false
+  const raw = String(ifNoneMatch).trim()
+  if (!raw) return false
+  if (raw === '*') return true
+  const norm = (v) => String(v).trim().replace(/^W\//i, '').replace(/^"|"$/g, '')
+  const target = norm(etag)
+  return raw.split(',').some((part) => norm(part) === target)
+}
+
+export function resolveHttpCachePolicy(cacheCfg) {
+  const enabled = cacheCfg?.enabled !== false
+  const rawMax = Number(cacheCfg?.httpMaxAgeSeconds ?? 3600)
+  const maxAge = enabled && Number.isFinite(rawMax)
+    ? Math.max(0, Math.min(86400, Math.floor(rawMax)))
+    : 0
+  return {
+    enabled: enabled && maxAge > 0,
+    maxAge,
+    cacheControl: enabled && maxAge > 0 ? `private, max-age=${maxAge}` : 'no-store',
+  }
+}
+
 export class AudioCache {
   /** @param {() => {enabled:boolean,maxEntries:number,maxBytes:number,ttlSeconds:number}} getOpts */
   constructor(getOpts) {
@@ -23,6 +63,15 @@ export class AudioCache {
     this.bytes = 0
     this.hits = 0
     this.misses = 0
+  }
+
+  has(key) {
+    const opts = this.getOpts()
+    if (!opts.enabled) return false
+    const hit = this.map.get(key)
+    if (!hit) return false
+    if (Date.now() - hit.at > opts.ttlSeconds * 1000) return false
+    return true
   }
 
   get(key) {

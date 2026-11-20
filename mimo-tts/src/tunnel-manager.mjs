@@ -9,10 +9,12 @@
  *   - detectHttpsTools() 严格只读且超时 3 秒，绝不修改用户配置或触发登录。
  */
 import { execFile, spawn, spawnSync } from 'node:child_process'
-import { accessSync, constants, existsSync } from 'node:fs'
-import { delimiter, join } from 'node:path'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { resolveRepoRoot } from './paths.mjs'
+import { findBinary, resolveRepoRoot } from './paths.mjs'
+
+export { findBinary }
 
 const execFileAsync = promisify(execFile)
 
@@ -21,8 +23,6 @@ export const TRY_CLOUDFLARE_FIND_RE = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/
 export const TRY_CLOUDFLARE_STRICT_RE = /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/
 const LOG_RING_LIMIT = 200
 const DETECT_TIMEOUT_MS = 3000
-
-const EXTRA_BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']
 
 export class TunnelError extends Error {
   constructor(message, status = 400, code = 'tunnel_error') {
@@ -35,34 +35,6 @@ export class TunnelError extends Error {
 
 function defaultRunSync(cmd, args, timeout = DETECT_TIMEOUT_MS) {
   return spawnSync(cmd, args, { encoding: 'utf8', timeout })
-}
-
-export function findBinary(name, probe = {}) {
-  if (probe?.binaries && Object.hasOwn(probe.binaries, name)) {
-    return String(probe.binaries[name] || '')
-  }
-  const pathDirs = String(process.env.PATH || '').split(delimiter).filter(Boolean)
-  const candidates = [...new Set([...pathDirs, ...EXTRA_BIN_DIRS])]
-  const suffix = process.platform === 'win32' ? '.exe' : ''
-  for (const dir of candidates) {
-    const full = join(dir, `${name}${suffix}`)
-    try {
-      if (existsSync(full)) {
-        accessSync(full, constants.X_OK)
-        return full
-      }
-    } catch { /* try next dir */ }
-  }
-  if (name === 'tailscale' && process.platform === 'darwin') {
-    const appBin = '/Applications/Tailscale.app/Contents/MacOS/Tailscale'
-    try {
-      if (existsSync(appBin)) {
-        accessSync(appBin, constants.X_OK)
-        return appBin
-      }
-    } catch { /* ignore */ }
-  }
-  return ''
 }
 
 function firstLine(text) {

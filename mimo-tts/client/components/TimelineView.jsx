@@ -95,7 +95,7 @@ export function TrackHeads({
   let note
   if (!running) note = '走带停止 · 无信号'
   else if (hybrid.enabled) {
-    const reason = hybrid.lastSwitchReason || (localWarm ? '本地已就绪，云端顶班结束' : '离线，本地尚未就绪')
+    const reason = hybrid.lastSwitchReasonText || hybrid.lastSwitchReason || (localWarm ? '本地已就绪，云端顶班结束' : '离线，本地尚未就绪')
     note = `混合顶班 ${num(hybrid.bootstrapCount)}/${num(hybrid.maxCloudBootstrap)} · ${reason}`
   } else if (provider === 'local') note = '纯本地渲染 · 云端待命'
   else if (provider === 'openai') note = `OpenAI 兼容 · ${openai.model || 'tts-1'}`
@@ -521,7 +521,7 @@ export function Inspector({ running, live, service, localInfo, config, item, ite
         : `云端顶班（最多 ${num(hybrid.maxCloudBootstrap)} 段）`
   const hybridNote = hybrid.enabled
     ? (localWarm
-      ? `顶班 ${num(hybrid.bootstrapCount)}/${num(hybrid.maxCloudBootstrap)} 段 · ${hybrid.lastSwitchReason || '本地已就绪'}`
+      ? `顶班 ${num(hybrid.bootstrapCount)}/${num(hybrid.maxCloudBootstrap)} 段 · ${hybrid.lastSwitchReasonText || hybrid.lastSwitchReason || '本地已就绪'}`
       : `云端顶班（最多 ${num(hybrid.maxCloudBootstrap)} 段）`)
     : provider === 'local'
       ? '纯本地渲染 · 云端待命'
@@ -541,6 +541,12 @@ export function Inspector({ running, live, service, localInfo, config, item, ite
           <p className="pick-text">
             {item ? (item.text || '（这段没有文本）') : '还没有片段。让阅读 App 朗读一段，这里会显示正在合成的句子。'}
           </p>
+          {item?.error && (item.errorMessage || item.errorHint) && (
+            <div style={{ fontSize: 11, color: 'var(--grease)', marginBottom: 6, lineHeight: 1.45 }}>
+              <b>{item.errorMessage || '请求失败'}</b>
+              {item.errorHint ? ` · ${item.errorHint}` : ''}
+            </div>
+          )}
           <div className="pick-meta">
             <div className="kv"><span className="k">延迟 LATENCY</span><span className="v">{item ? (item.error ? '失败' : latSec(item.latencyMs)) : '—'}</span></div>
             <div className="kv"><span className="k">字数 CHARS</span><span className="v">{item ? `${item.chars} 字` : '—'}</span></div>

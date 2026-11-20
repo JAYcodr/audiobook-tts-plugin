@@ -72,11 +72,12 @@ var HINTS = {
   delivery: "\u590D\u5236\u5BFC\u5165\u5730\u5740\u5373\u53EF\u4EA4\u4ED8 \xB7 \u4EE4\u724C\u5DF2\u62FC\u8FDB URL \xB7 \u9519\u8BEF\u7801\u5728\u53F3\u4FA7"
 };
 var ERR_CODES = [
-  ["401", "\u4EE4\u724C\u6216\u53E3\u4EE4\u4E0D\u5BF9 \u2014 \u4ECE\u672C\u9875\u91CD\u65B0\u590D\u5236\u5BFC\u5165\u5730\u5740"],
-  ["429", "\u89E6\u53D1\u6BCF\u5206\u949F\u9650\u901F \u2014 \u8C03\u5927\u300C\u6BCF\u6BB5\u5B57\u6570\u300D\u51CF\u5C11\u5206\u6BB5\u8BF7\u6C42"],
-  ["502", "\u4E0A\u6E38\u6216\u672C\u5730\u5F15\u64CE\u62A5\u9519 \u2014 \u67E5\u770B\u65F6\u95F4\u7EBF\u6D41\u6C34\u6216\u5207\u6362\u5F15\u64CE\u515C\u5E95"],
+  ["401", "\u4EE4\u724C\u6216\u53E3\u4EE4\u4E0D\u5BF9 \u2014 \u4ECE\u672C\u9875\u91CD\u65B0\u590D\u5236\u5BFC\u5165\u5730\u5740\u6216\u5206\u4EAB\u94FE\u63A5"],
+  ["402", "\u4E91\u7AEF\u4F59\u989D\u6216\u989D\u5EA6\u7528\u5C3D \u2014 \u6362 Key \u6216\u4E00\u952E\u5207\u5230\u672C\u5730 Qwen3-TTS"],
+  ["429", "\u89E6\u53D1\u6BCF\u5206\u949F\u9650\u901F \u2014 \u8C03\u5927\u300C\u6BCF\u6BB5\u5B57\u6570\u300D\u6216\u964D\u5E76\u53D1"],
+  ["502", "\u4E0A\u6E38\u62A5\u9519 \u2014 \u68C0\u67E5 API Key / \u53C2\u8003\u97F3\uFF0C\u6216\u8DD1\u300C\u8FD0\u884C\u4F53\u68C0\u300D"],
   ["413", "\u6587\u672C\u8D85\u8FC7\u5355\u6B21\u4E0A\u9650 \u2014 \u8C03\u5927\u300C\u6700\u957F\u6587\u672C\u300D\u6216\u5206\u6BB5\u53D1\u9001"],
-  ["503", "\u670D\u52A1\u672A\u542F\u52A8 \u2014 \u56DE\u65F6\u95F4\u7EBF\u542F\u52A8\u670D\u52A1"],
+  ["503", "\u670D\u52A1\u672A\u542F\u52A8\u6216\u672C\u5730\u5F15\u64CE\u79BB\u7EBF \u2014 \u542F\u52A8\u670D\u52A1\u6216\u68C0\u67E5\u4F53\u68C0"],
   ["500", "\u670D\u52A1\u5185\u90E8\u9519\u8BEF \u2014 \u770B\u5BBF\u4E3B\u63A7\u5236\u53F0\u65E5\u5FD7"]
 ];
 var COPY_LABEL = {
@@ -216,9 +217,12 @@ var FIELDS = [
   { path: "synth.maxTextChars", label: "\u6700\u957F\u6587\u672C", module: "synth" },
   { path: "synth.concurrency", label: "\u5408\u6210\u5E76\u53D1", module: "synth" },
   { path: "synth.stream", label: "\u6D41\u5F0F\u8FD4\u56DE", module: "synth" },
+  { path: "audio.format", label: "\u8F93\u51FA\u97F3\u9891\u683C\u5F0F", module: "synth" },
+  { path: "audio.bitrate", label: "\u538B\u7F29\u7801\u7387", module: "synth" },
   { path: "cache.enabled", label: "\u542F\u7528\u7F13\u5B58", module: "synth" },
   { path: "cache.maxEntries", label: "\u7F13\u5B58\u6761\u76EE", module: "synth" },
   { path: "cache.ttlSeconds", label: "\u7F13\u5B58 TTL", module: "synth" },
+  { path: "cache.httpMaxAgeSeconds", label: "HTTP \u7F13\u5B58 max-age", module: "synth" },
   { path: "limits.rpm", label: "\u9650\u901F RPM", module: "synth" },
   { path: "auth.enabled", label: "Basic \u9274\u6743", module: "auth" },
   { path: "auth.user", label: "\u7528\u6237\u540D", module: "auth" },
@@ -259,8 +263,10 @@ var NUMERIC_FIELDS = /* @__PURE__ */ new Set([
   "synth.maxSegmentChars",
   "synth.maxTextChars",
   "synth.concurrency",
+  "audio.bitrate",
   "cache.maxEntries",
   "cache.ttlSeconds",
+  "cache.httpMaxAgeSeconds",
   "limits.rpm",
   "log.ring"
 ]);
@@ -307,6 +313,7 @@ function fromConfig(cfg) {
   const vp = c.voiceProfiles || {};
   const tr = c.textRules || {};
   const synth = c.synth || {};
+  const audio = c.audio || {};
   const cache = c.cache || {};
   const auth = c.auth || {};
   const legado = c.legado || {};
@@ -372,9 +379,12 @@ function fromConfig(cfg) {
     "synth.maxTextChars": str(synth.maxTextChars, "10000"),
     "synth.concurrency": str(synth.concurrency, "4"),
     "synth.stream": Boolean(synth.stream),
+    "audio.format": str(audio.format, "wav"),
+    "audio.bitrate": str(audio.bitrate, "64"),
     "cache.enabled": Boolean(cache.enabled),
     "cache.maxEntries": str(cache.maxEntries, "500"),
     "cache.ttlSeconds": str(cache.ttlSeconds, "7200"),
+    "cache.httpMaxAgeSeconds": str(cache.httpMaxAgeSeconds, "3600"),
     "limits.rpm": str(limits.rpm, "100"),
     "auth.enabled": Boolean(auth.enabled),
     "auth.user": str(auth.user),
@@ -503,10 +513,11 @@ function legadoPayload(imp, cfg) {
   };
   const listen = String(imp?.listenUrl || "");
   const option = { method: "POST", body: BODY_TEXT, header: headers };
+  const contentType = String(cfg?.audio?.format || "wav").trim().toLowerCase() === "mp3" ? "audio/mpeg" : "audio/wav";
   return [{
     name: cfg?.legado?.name || "\u542C\u4E66\u503C\u5B88 TTS",
     url: `${listen},${JSON.stringify(option)}`,
-    contentType: "audio/wav",
+    contentType,
     concurrentRate: String(cfg?.synth?.concurrency || 4)
   }];
 }
@@ -2155,6 +2166,7 @@ function QrCard({ title, badge, url, copyKind, onCopy }) {
 // client/components/DeliveryView.jsx
 function DeliveryView({
   service,
+  live,
   config,
   importInfo,
   tunnel,
@@ -2163,11 +2175,13 @@ function DeliveryView({
   onCopy,
   onExportConfig,
   onOpenSetup,
+  onDiagAction,
   showToast
 }) {
   const [shareBusy, setShareBusy] = (0, import_react6.useState)(false);
   const imp = importInfo || {};
   const cfg = config || {};
+  const lastErr = live?.lastError && !live.lastError.resolved ? live.lastError : null;
   const running = Boolean(service?.running);
   const hasToken = Boolean(imp.hasToken);
   const shareUrl = imp.shareBestJsonUrl || imp.sharePublicJsonUrl || imp.shareRelayJsonUrl || imp.shareQuickJsonUrl || imp.shareJsonUrl || "";
@@ -2310,7 +2324,7 @@ function DeliveryView({
       showRuleToggle: true,
       title: "\u5DF2\u4FDD\u5B58\u914D\u7F6E\u76F4\u63A5\u8BD5\u542C"
     }
-  ), /* @__PURE__ */ import_react6.default.createElement("pre", { className: "code", id: "curlBlock", style: { marginTop: 8 } }, curl))), /* @__PURE__ */ import_react6.default.createElement("aside", { className: "dlv-right" }, /* @__PURE__ */ import_react6.default.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 } }, /* @__PURE__ */ import_react6.default.createElement("div", null, /* @__PURE__ */ import_react6.default.createElement("h2", null, "\u4EA4\u4ED8\u6821\u9A8C"), /* @__PURE__ */ import_react6.default.createElement("div", { className: "sub" }, "Preflight")), /* @__PURE__ */ import_react6.default.createElement("button", { className: "btn btn--sm", type: "button", onClick: onOpenSetup }, "\u8FD0\u884C\u4F53\u68C0")), /* @__PURE__ */ import_react6.default.createElement("div", { className: "checklist" }, checks.map(([ok, label, value]) => /* @__PURE__ */ import_react6.default.createElement("div", { key: label, className: `check${ok ? "" : " warn"}` }, /* @__PURE__ */ import_react6.default.createElement("span", { className: "ck" }, ok ? "\u2713" : "\u25CB"), /* @__PURE__ */ import_react6.default.createElement("span", { className: "cn2" }, label), /* @__PURE__ */ import_react6.default.createElement("span", { className: "cv", title: String(value) }, String(value))))), /* @__PURE__ */ import_react6.default.createElement("div", { className: "errcodes" }, /* @__PURE__ */ import_react6.default.createElement("span", { className: "silk", style: { marginBottom: 3 } }, "ERROR CODES ", /* @__PURE__ */ import_react6.default.createElement("b", null, "\u9519\u8BEF\u7801")), ERR_CODES.map(([code, fix]) => /* @__PURE__ */ import_react6.default.createElement("div", { key: code, className: "errcode" }, /* @__PURE__ */ import_react6.default.createElement("b", null, code), /* @__PURE__ */ import_react6.default.createElement("span", null, fix)))), /* @__PURE__ */ import_react6.default.createElement("div", { className: "dlv-actions" }, /* @__PURE__ */ import_react6.default.createElement("button", { className: "btn btn--sm", type: "button", "data-copy": "import", onClick: () => onCopy("import") }, "\u590D\u5236\u5BFC\u5165\u5730\u5740"), /* @__PURE__ */ import_react6.default.createElement("button", { className: "btn btn--sm", type: "button", "data-copy": "json", onClick: () => onCopy("json") }, "\u590D\u5236 JSON"), /* @__PURE__ */ import_react6.default.createElement("button", { className: "btn btn--sm", type: "button", "data-copy": "curl", onClick: () => onCopy("curl") }, "\u590D\u5236 curl"), /* @__PURE__ */ import_react6.default.createElement("button", { className: "btn btn--sm", type: "button", "data-action": "export-config", onClick: onExportConfig }, "\u5BFC\u51FA\u914D\u7F6E")), /* @__PURE__ */ import_react6.default.createElement("p", { className: "hint", style: { marginTop: "auto" } }, "\u624B\u673A\u76F8\u673A\u6216 Legado \u4E8C\u7EF4\u7801\u8BC6\u522B\u53EF\u76F4\u63A5\u626B\u4E0A\u65B9\u4E8C\u7EF4\u7801\uFF08\u7EAF\u79BB\u7EBF SVG \u751F\u6210\uFF0C\u4E0D\u7ECF\u7B2C\u4E09\u65B9\u670D\u52A1\u5668\uFF09\u3002")));
+  ), /* @__PURE__ */ import_react6.default.createElement("pre", { className: "code", id: "curlBlock", style: { marginTop: 8 } }, curl))), /* @__PURE__ */ import_react6.default.createElement("aside", { className: "dlv-right" }, /* @__PURE__ */ import_react6.default.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 } }, /* @__PURE__ */ import_react6.default.createElement("div", null, /* @__PURE__ */ import_react6.default.createElement("h2", null, "\u4EA4\u4ED8\u6821\u9A8C"), /* @__PURE__ */ import_react6.default.createElement("div", { className: "sub" }, "Preflight")), /* @__PURE__ */ import_react6.default.createElement("button", { className: "btn btn--sm", type: "button", onClick: onOpenSetup }, "\u8FD0\u884C\u4F53\u68C0")), /* @__PURE__ */ import_react6.default.createElement("div", { className: "checklist" }, checks.map(([ok, label, value]) => /* @__PURE__ */ import_react6.default.createElement("div", { key: label, className: `check${ok ? "" : " warn"}` }, /* @__PURE__ */ import_react6.default.createElement("span", { className: "ck" }, ok ? "\u2713" : "\u25CB"), /* @__PURE__ */ import_react6.default.createElement("span", { className: "cn2" }, label), /* @__PURE__ */ import_react6.default.createElement("span", { className: "cv", title: String(value) }, String(value))))), lastErr && /* @__PURE__ */ import_react6.default.createElement("div", { className: "errcodes", "data-testid": "last-error-diagnostic", style: { borderColor: "var(--grease)", background: "rgba(177, 58, 34, 0.06)" } }, /* @__PURE__ */ import_react6.default.createElement("span", { className: "silk", style: { marginBottom: 3, color: "var(--grease)" } }, "LAST ERROR ", /* @__PURE__ */ import_react6.default.createElement("b", null, "\u6700\u8FD1\u4E00\u6B21\u5F02\u5E38 (", lastErr.status, ")")), /* @__PURE__ */ import_react6.default.createElement("div", { style: { fontSize: 12, fontWeight: 600, marginBottom: 2 } }, lastErr.message), lastErr.hint && /* @__PURE__ */ import_react6.default.createElement("div", { style: { fontSize: 11, opacity: 0.85, marginBottom: 6 } }, lastErr.hint), /* @__PURE__ */ import_react6.default.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } }, lastErr.action === "switch-local" && /* @__PURE__ */ import_react6.default.createElement("button", { className: "btn btn--sm btn--tape", type: "button", onClick: () => onDiagAction?.("switch-local") }, "\u4E00\u952E\u5207\u5230\u672C\u5730 Qwen3"), lastErr.action === "start-service" && /* @__PURE__ */ import_react6.default.createElement("button", { className: "btn btn--sm btn--tape", type: "button", onClick: () => onDiagAction?.("start-service") }, "\u7ACB\u5373\u542F\u52A8\u670D\u52A1"), lastErr.action === "open-setup" && /* @__PURE__ */ import_react6.default.createElement("button", { className: "btn btn--sm", type: "button", onClick: onOpenSetup }, "\u6253\u5F00\u4F53\u68C0\u4FEE\u590D"), (lastErr.action === "open-settings" || lastErr.action === "switch-local") && /* @__PURE__ */ import_react6.default.createElement("button", { className: "btn btn--sm", type: "button", onClick: onOpenSettings }, "\u524D\u5F80\u6E32\u67D3\u8BBE\u7F6E"))), /* @__PURE__ */ import_react6.default.createElement("div", { className: "errcodes" }, /* @__PURE__ */ import_react6.default.createElement("span", { className: "silk", style: { marginBottom: 3 } }, "ERROR CODES ", /* @__PURE__ */ import_react6.default.createElement("b", null, "\u9519\u8BEF\u7801")), ERR_CODES.map(([code, fix]) => /* @__PURE__ */ import_react6.default.createElement("div", { key: code, className: "errcode" }, /* @__PURE__ */ import_react6.default.createElement("b", null, code), /* @__PURE__ */ import_react6.default.createElement("span", null, fix)))), /* @__PURE__ */ import_react6.default.createElement("div", { className: "dlv-actions" }, /* @__PURE__ */ import_react6.default.createElement("button", { className: "btn btn--sm", type: "button", "data-copy": "import", onClick: () => onCopy("import") }, "\u590D\u5236\u5BFC\u5165\u5730\u5740"), /* @__PURE__ */ import_react6.default.createElement("button", { className: "btn btn--sm", type: "button", "data-copy": "json", onClick: () => onCopy("json") }, "\u590D\u5236 JSON"), /* @__PURE__ */ import_react6.default.createElement("button", { className: "btn btn--sm", type: "button", "data-copy": "curl", onClick: () => onCopy("curl") }, "\u590D\u5236 curl"), /* @__PURE__ */ import_react6.default.createElement("button", { className: "btn btn--sm", type: "button", "data-action": "export-config", onClick: onExportConfig }, "\u5BFC\u51FA\u914D\u7F6E")), /* @__PURE__ */ import_react6.default.createElement("p", { className: "hint", style: { marginTop: "auto" } }, "\u624B\u673A\u76F8\u673A\u6216 Legado \u4E8C\u7EF4\u7801\u8BC6\u522B\u53EF\u76F4\u63A5\u626B\u4E0A\u65B9\u4E8C\u7EF4\u7801\uFF08\u7EAF\u79BB\u7EBF SVG \u751F\u6210\uFF0C\u4E0D\u7ECF\u7B2C\u4E09\u65B9\u670D\u52A1\u5668\uFF09\u3002")));
 }
 
 // client/components/SettingsView.jsx
@@ -3548,7 +3562,45 @@ function SettingsView({
       }
     )
   ], { wide: true }), moduleShell("mod-synth", "07", "\u5408\u6210\u4E0E\u7F13\u5B58", "SYNTH \xB7 CACHE", "synth", [
-    /* @__PURE__ */ import_react9.default.createElement("div", { key: "scols", className: "synth-cols" }, /* @__PURE__ */ import_react9.default.createElement("div", null, /* @__PURE__ */ import_react9.default.createElement("div", { className: "knob-row" }, knob("synth.concurrency", "\u5E76\u53D1", 1, 8, 1, "\u8DEF", "\u5408\u6210\u5E76\u53D1\uFF08\u8DEF\uFF09"), knob("synth.maxSegmentChars", "\u6BCF\u6BB5\u5B57\u6570", 10, 300, 10, "\u5B57", "\u6BCF\u6BB5\u6700\u5927\u5B57\u6570"), knob("limits.rpm", "\u9650\u901F", 10, 300, 10, "/min", "\u6BCF\u5206\u949F\u8BF7\u6C42\u4E0A\u9650")), /* @__PURE__ */ import_react9.default.createElement("div", { className: "ctrl-row" }, /* @__PURE__ */ import_react9.default.createElement("div", { className: "cl" }, /* @__PURE__ */ import_react9.default.createElement("b", null, "\u6D41\u5F0F\u8FD4\u56DE"), /* @__PURE__ */ import_react9.default.createElement("i", null, "STREAM")), toggle("synth.stream", "\u6D41\u5F0F\u8FD4\u56DE"))), /* @__PURE__ */ import_react9.default.createElement("div", null, /* @__PURE__ */ import_react9.default.createElement("div", { className: "knob-row" }, knob("cache.maxEntries", "\u7F13\u5B58\u6761\u76EE", 50, 5e3, 50, "\u6761", "\u7F13\u5B58\u6761\u76EE\u4E0A\u9650"), knob("cache.ttlSeconds", "\u7F13\u5B58 TTL", 600, 86400, 600, "s", "\u7F13\u5B58 TTL\uFF08\u79D2\uFF09"), knob("synth.maxTextChars", "\u6700\u957F\u6587\u672C", 1e3, 2e4, 1e3, "\u5B57", "\u5355\u6B21\u6700\u957F\u6587\u672C")), /* @__PURE__ */ import_react9.default.createElement("div", { className: "ctrl-row" }, /* @__PURE__ */ import_react9.default.createElement("div", { className: "cl" }, /* @__PURE__ */ import_react9.default.createElement("b", null, "\u7F13\u5B58"), /* @__PURE__ */ import_react9.default.createElement("i", null, `\u4E0A\u9650 ${fmtBytes(live?.cache?.maxBytes || 0)}`)), toggle("cache.enabled", "\u542F\u7528\u7F13\u5B58"))))
+    /* @__PURE__ */ import_react9.default.createElement("div", { key: "scols", className: "synth-cols" }, /* @__PURE__ */ import_react9.default.createElement("div", null, /* @__PURE__ */ import_react9.default.createElement("div", { className: "knob-row" }, knob("synth.concurrency", "\u5E76\u53D1", 1, 8, 1, "\u8DEF", "\u5408\u6210\u5E76\u53D1\uFF08\u8DEF\uFF09"), knob("synth.maxSegmentChars", "\u6BCF\u6BB5\u5B57\u6570", 10, 300, 10, "\u5B57", "\u6BCF\u6BB5\u6700\u5927\u5B57\u6570"), knob("limits.rpm", "\u9650\u901F", 10, 300, 10, "/min", "\u6BCF\u5206\u949F\u8BF7\u6C42\u4E0A\u9650")), /* @__PURE__ */ import_react9.default.createElement("div", { className: "ctrl-row" }, /* @__PURE__ */ import_react9.default.createElement("div", { className: "cl" }, /* @__PURE__ */ import_react9.default.createElement("b", null, "\u6D41\u5F0F\u8FD4\u56DE"), /* @__PURE__ */ import_react9.default.createElement("i", null, "STREAM \xB7 \u4EC5 WAV \u6709\u6548")), toggle("synth.stream", "\u6D41\u5F0F\u8FD4\u56DE")), /* @__PURE__ */ import_react9.default.createElement("div", { className: "ctrl-row" }, /* @__PURE__ */ import_react9.default.createElement("div", { className: "cl" }, /* @__PURE__ */ import_react9.default.createElement("b", null, "\u9ED8\u8BA4\u8F93\u51FA\u683C\u5F0F"), /* @__PURE__ */ import_react9.default.createElement("i", null, d["audio.format"] === "opus" ? "Opus \u4EC5\u4F9B OpenAI \u5BA2\u6237\u7AEF\uFF0CLegado \u81EA\u52A8\u9000\u56DE WAV" : "MP3 / Opus \u9700\u672C\u673A ffmpeg\uFF1B\u975E WAV \u7981\u7528\u6D41\u5F0F")), /* @__PURE__ */ import_react9.default.createElement(
+      Seg,
+      {
+        options: [
+          { value: "wav", label: "WAV" },
+          { value: "mp3", label: "MP3" },
+          { value: "opus", label: "Opus" }
+        ],
+        value: d["audio.format"] || "wav",
+        ariaLabel: "\u9ED8\u8BA4\u8F93\u51FA\u683C\u5F0F",
+        onChange: (v) => onSet("audio.format", v)
+      }
+    )), (d["audio.format"] === "mp3" || d["audio.format"] === "opus") && /* @__PURE__ */ import_react9.default.createElement("div", { className: "ctrl-row" }, /* @__PURE__ */ import_react9.default.createElement("div", { className: "cl" }, /* @__PURE__ */ import_react9.default.createElement("b", null, "\u538B\u7F29\u7801\u7387"), /* @__PURE__ */ import_react9.default.createElement("i", null, "BITRATE (kbps)")), /* @__PURE__ */ import_react9.default.createElement(
+      Seg,
+      {
+        options: [
+          { value: "32", label: "32k" },
+          { value: "48", label: "48k" },
+          { value: "64", label: "64k" },
+          { value: "128", label: "128k" }
+        ],
+        value: String(d["audio.bitrate"] || "64"),
+        ariaLabel: "\u538B\u7F29\u7801\u7387",
+        onChange: (v) => onSet("audio.bitrate", v)
+      }
+    ))), /* @__PURE__ */ import_react9.default.createElement("div", null, /* @__PURE__ */ import_react9.default.createElement("div", { className: "knob-row" }, knob("cache.maxEntries", "\u7F13\u5B58\u6761\u76EE", 50, 5e3, 50, "\u6761", "\u7F13\u5B58\u6761\u76EE\u4E0A\u9650"), knob("cache.ttlSeconds", "\u7F13\u5B58 TTL", 600, 86400, 600, "s", "\u7F13\u5B58 TTL\uFF08\u79D2\uFF09"), knob("synth.maxTextChars", "\u6700\u957F\u6587\u672C", 1e3, 2e4, 1e3, "\u5B57", "\u5355\u6B21\u6700\u957F\u6587\u672C")), /* @__PURE__ */ import_react9.default.createElement("div", { className: "ctrl-row" }, /* @__PURE__ */ import_react9.default.createElement("div", { className: "cl" }, /* @__PURE__ */ import_react9.default.createElement("b", null, "\u7F13\u5B58"), /* @__PURE__ */ import_react9.default.createElement("i", null, `\u4E0A\u9650 ${fmtBytes(live?.cache?.maxBytes || 0)}`)), toggle("cache.enabled", "\u542F\u7528\u7F13\u5B58")), /* @__PURE__ */ import_react9.default.createElement("div", { className: "ctrl-row" }, /* @__PURE__ */ import_react9.default.createElement("div", { className: "cl" }, /* @__PURE__ */ import_react9.default.createElement("b", null, "HTTP \u7F13\u5B58\u5934"), /* @__PURE__ */ import_react9.default.createElement("i", null, Number(d["cache.httpMaxAgeSeconds"] ?? 3600) > 0 ? `ETag + private, max-age=${d["cache.httpMaxAgeSeconds"]}` : "no-store\uFF08\u7981\u7528\u6D4F\u89C8\u5668/\u4EE3\u7406\u7F13\u5B58\uFF09")), /* @__PURE__ */ import_react9.default.createElement(
+      Seg,
+      {
+        options: [
+          { value: "0", label: "\u7981\u7528" },
+          { value: "300", label: "5\u5206" },
+          { value: "3600", label: "1\u5C0F\u65F6" },
+          { value: "86400", label: "24\u5C0F\u65F6" }
+        ],
+        value: String(d["cache.httpMaxAgeSeconds"] ?? "3600"),
+        ariaLabel: "HTTP \u7F13\u5B58 max-age",
+        onChange: (v) => onSet("cache.httpMaxAgeSeconds", v)
+      }
+    ))))
   ], { wide: true }), /* @__PURE__ */ import_react9.default.createElement("div", { className: "mod-group-hd" }, /* @__PURE__ */ import_react9.default.createElement("span", { className: "silk" }, "GROUP 04 \xB7 ", /* @__PURE__ */ import_react9.default.createElement("b", null, "\u7F51\u7EDC\u7AEF\u53E3\u3001\u5BF9\u5916 OpenAI \u7AEF\u70B9\u3001Legado \u4E0E\u5B89\u5168\u9274\u6743"))), moduleShell("mod-transport", "08", "\u4F20\u8F93\u3001Legado \u4E0E\u516C\u7F51\u96A7\u9053", "TRANSPORT \xB7 TUNNEL", "transport", [
     /* @__PURE__ */ import_react9.default.createElement("div", { key: "trcols", className: "synth-cols" }, /* @__PURE__ */ import_react9.default.createElement("div", null, twoCol(
       /* @__PURE__ */ import_react9.default.createElement(Field, { key: "sh", label: "\u76D1\u542C\u5730\u5740", sub: "HOST", style: { padding: 0 } }, input("server.host", { spellCheck: false })),
@@ -3574,7 +3626,7 @@ function SettingsView({
     )))
   ], { wide: true }), moduleShell("mod-openai-server", "09", "\u5BF9\u5916 OpenAI \u517C\u5BB9\u7AEF\u70B9 (/v1/audio/speech)", d["openaiServer.enabled"] ? "ENABLED" : "DISABLED", "openaiServer", [
     /* @__PURE__ */ import_react9.default.createElement("div", { key: "oas-sec", className: "https-warn", style: { marginBottom: 6 } }, /* @__PURE__ */ import_react9.default.createElement("b", null, "\u5B89\u5168\u63D0\u793A\uFF1A"), "\u9ED8\u8BA4\u5173\u95ED\uFF08\u8FD4\u56DE 404\uFF09\u3002\u5F00\u542F\u540E\u5C06\u5BF9\u5916\u66B4\u9732 ", /* @__PURE__ */ import_react9.default.createElement("code", null, "/v1/models"), " \u4E0E ", /* @__PURE__ */ import_react9.default.createElement("code", null, "/v1/audio/speech"), "\uFF08\u517C\u5BB9 Readest \u7B49\u9605\u8BFB\u5BA2\u6237\u7AEF\uFF09\u3002\u516C\u7F51\u90E8\u7F72\u8BF7\u52A1\u5FC5\u751F\u6210\u72EC\u7ACB Bearer \u5BC6\u94A5\uFF0C\u5E76\u907F\u514D\u5728\u516C\u5171\u573A\u6240\u6CC4\u9732\u3002"),
-    /* @__PURE__ */ import_react9.default.createElement("div", { key: "oas-cols", className: "synth-cols" }, /* @__PURE__ */ import_react9.default.createElement("div", null, /* @__PURE__ */ import_react9.default.createElement("div", { className: "ctrl-row" }, /* @__PURE__ */ import_react9.default.createElement("div", { className: "cl" }, /* @__PURE__ */ import_react9.default.createElement("b", null, "\u542F\u7528\u5BF9\u5916 OpenAI \u7AEF\u70B9"), /* @__PURE__ */ import_react9.default.createElement("i", null, "ENABLED")), toggle("openaiServer.enabled", "\u542F\u7528\u5BF9\u5916 OpenAI \u7AEF\u70B9")), /* @__PURE__ */ import_react9.default.createElement("div", { className: "ctrl-row" }, /* @__PURE__ */ import_react9.default.createElement("div", { className: "cl" }, /* @__PURE__ */ import_react9.default.createElement("b", null, "\u6309\u5F15\u53F7\u5207\u5206\u65C1\u767D/\u5BF9\u8BDD"), /* @__PURE__ */ import_react9.default.createElement("i", null, "SPLIT DIALOGUE")), toggle("openaiServer.splitDialogue", "\u6309\u5F15\u53F7\u5207\u5206\u65C1\u767D/\u5BF9\u8BDD")), /* @__PURE__ */ import_react9.default.createElement(Field, { label: "\u9ED8\u8BA4\u63A8\u8350\u6A21\u578B\u540D", sub: "MODEL" }, input("openaiServer.defaultModel", { spellCheck: false, placeholder: "audiobook-tts" }))), /* @__PURE__ */ import_react9.default.createElement("div", null, /* @__PURE__ */ import_react9.default.createElement("div", { className: "ctrl-row" }, /* @__PURE__ */ import_react9.default.createElement("div", { className: "cl" }, /* @__PURE__ */ import_react9.default.createElement("b", null, "MP3 \u8BF7\u6C42\u5904\u7406\u7B56\u7565"), /* @__PURE__ */ import_react9.default.createElement("i", null, "MP3 FALLBACK")), /* @__PURE__ */ import_react9.default.createElement(
+    /* @__PURE__ */ import_react9.default.createElement("div", { key: "oas-cols", className: "synth-cols" }, /* @__PURE__ */ import_react9.default.createElement("div", null, /* @__PURE__ */ import_react9.default.createElement("div", { className: "ctrl-row" }, /* @__PURE__ */ import_react9.default.createElement("div", { className: "cl" }, /* @__PURE__ */ import_react9.default.createElement("b", null, "\u542F\u7528\u5BF9\u5916 OpenAI \u7AEF\u70B9"), /* @__PURE__ */ import_react9.default.createElement("i", null, "ENABLED")), toggle("openaiServer.enabled", "\u542F\u7528\u5BF9\u5916 OpenAI \u7AEF\u70B9")), /* @__PURE__ */ import_react9.default.createElement("div", { className: "ctrl-row" }, /* @__PURE__ */ import_react9.default.createElement("div", { className: "cl" }, /* @__PURE__ */ import_react9.default.createElement("b", null, "\u6309\u5F15\u53F7\u5207\u5206\u65C1\u767D/\u5BF9\u8BDD"), /* @__PURE__ */ import_react9.default.createElement("i", null, "SPLIT DIALOGUE")), toggle("openaiServer.splitDialogue", "\u6309\u5F15\u53F7\u5207\u5206\u65C1\u767D/\u5BF9\u8BDD")), /* @__PURE__ */ import_react9.default.createElement(Field, { label: "\u9ED8\u8BA4\u63A8\u8350\u6A21\u578B\u540D", sub: "MODEL" }, input("openaiServer.defaultModel", { spellCheck: false, placeholder: "audiobook-tts" }))), /* @__PURE__ */ import_react9.default.createElement("div", null, /* @__PURE__ */ import_react9.default.createElement("div", { className: "ctrl-row" }, /* @__PURE__ */ import_react9.default.createElement("div", { className: "cl" }, /* @__PURE__ */ import_react9.default.createElement("b", null, "\u65E0 ffmpeg / \u5F02\u5E38\u683C\u5F0F\u5904\u7406"), /* @__PURE__ */ import_react9.default.createElement("i", null, "FALLBACK POLICY")), /* @__PURE__ */ import_react9.default.createElement(
       Seg,
       {
         options: [
@@ -3582,7 +3634,7 @@ function SettingsView({
           { value: "strict", label: "\u4E25\u683C 400" }
         ],
         value: d["openaiServer.mp3Fallback"] || "wav",
-        ariaLabel: "MP3 \u683C\u5F0F\u56DE\u9000\u7B56\u7565",
+        ariaLabel: "\u683C\u5F0F\u56DE\u9000\u7B56\u7565",
         onChange: (v) => onSet("openaiServer.mp3Fallback", v)
       }
     )), /* @__PURE__ */ import_react9.default.createElement(Field, { label: "\u72EC\u7ACB Bearer \u5BC6\u94A5", sub: "\u7559\u7A7A\u590D\u7528 Token" }, /* @__PURE__ */ import_react9.default.createElement("div", { className: "addr", style: { gap: 6 } }, input("openaiServer.apiKey", { spellCheck: false, placeholder: "\u7559\u7A7A\u590D\u7528 Token\uFF0C\u6216\u70B9\u751F\u6210\u2026" }), /* @__PURE__ */ import_react9.default.createElement(
@@ -3707,7 +3759,13 @@ function SettingsView({
       },
       "\u540A\u9500"
     ))))))
-  ], { wide: true })), /* @__PURE__ */ import_react9.default.createElement("aside", { className: "apply", "aria-label": "\u751F\u6548\u4E0E\u6539\u52A8" }, /* @__PURE__ */ import_react9.default.createElement("div", null, /* @__PURE__ */ import_react9.default.createElement("h2", null, "\u751F\u6548"), /* @__PURE__ */ import_react9.default.createElement("div", { className: "sub" }, "Apply \xB7 Draft")), /* @__PURE__ */ import_react9.default.createElement("div", { className: "apply-sum", id: "appliedSummary" }, /* @__PURE__ */ import_react9.default.createElement(Rowx, { k: "\u6E32\u67D3\u6765\u6E90", v: provider }), /* @__PURE__ */ import_react9.default.createElement(Rowx, { k: "\u76D1\u542C", v: `${d["server.host"] || "\u2014"}:${d["server.port"] || "\u2014"}` }), /* @__PURE__ */ import_react9.default.createElement(Rowx, { k: "\u6A21\u578B", v: provider === "openai" ? String(d["upstream.openai.model"] || "\u2014") : String(d["upstream.model"] || "\u2014") }), /* @__PURE__ */ import_react9.default.createElement(Rowx, { k: "\u89C4\u5219", v: d["textRules.enabled"] ? `${(d["textRules.items"] || []).length} \u6761` : "\u5DF2\u5173\u95ED" }), /* @__PURE__ */ import_react9.default.createElement(Rowx, { k: "\u6BCF\u6BB5 / \u5E76\u53D1", v: `${d["synth.maxSegmentChars"] || "\u2014"} \u5B57 / ${d["synth.concurrency"] || "\u2014"} \u8DEF` }), /* @__PURE__ */ import_react9.default.createElement(Rowx, { k: "\u9650\u901F", v: `${d["limits.rpm"] || "\u2014"} \u6B21/\u5206` }), /* @__PURE__ */ import_react9.default.createElement(Rowx, { k: "\u7F13\u5B58", v: `${d["cache.maxEntries"] || "\u2014"} \u6761 \xB7 TTL ${ttlText(d["cache.ttlSeconds"])}` }), /* @__PURE__ */ import_react9.default.createElement(Rowx, { k: "OpenAI \u7AEF\u70B9", v: d["openaiServer.enabled"] ? "\u5DF2\u5F00\u542F" : "\u5DF2\u5173\u95ED" }), /* @__PURE__ */ import_react9.default.createElement(
+  ], { wide: true })), /* @__PURE__ */ import_react9.default.createElement("aside", { className: "apply", "aria-label": "\u751F\u6548\u4E0E\u6539\u52A8" }, /* @__PURE__ */ import_react9.default.createElement("div", null, /* @__PURE__ */ import_react9.default.createElement("h2", null, "\u751F\u6548"), /* @__PURE__ */ import_react9.default.createElement("div", { className: "sub" }, "Apply \xB7 Draft")), /* @__PURE__ */ import_react9.default.createElement("div", { className: "apply-sum", id: "appliedSummary" }, /* @__PURE__ */ import_react9.default.createElement(Rowx, { k: "\u6E32\u67D3\u6765\u6E90", v: provider }), /* @__PURE__ */ import_react9.default.createElement(Rowx, { k: "\u76D1\u542C", v: `${d["server.host"] || "\u2014"}:${d["server.port"] || "\u2014"}` }), /* @__PURE__ */ import_react9.default.createElement(Rowx, { k: "\u6A21\u578B", v: provider === "openai" ? String(d["upstream.openai.model"] || "\u2014") : String(d["upstream.model"] || "\u2014") }), /* @__PURE__ */ import_react9.default.createElement(Rowx, { k: "\u89C4\u5219", v: d["textRules.enabled"] ? `${(d["textRules.items"] || []).length} \u6761` : "\u5DF2\u5173\u95ED" }), /* @__PURE__ */ import_react9.default.createElement(Rowx, { k: "\u6BCF\u6BB5 / \u5E76\u53D1", v: `${d["synth.maxSegmentChars"] || "\u2014"} \u5B57 / ${d["synth.concurrency"] || "\u2014"} \u8DEF` }), /* @__PURE__ */ import_react9.default.createElement(
+    Rowx,
+    {
+      k: "\u8F93\u51FA\u683C\u5F0F",
+      v: (d["audio.format"] || "wav") === "wav" ? "WAV" : `${String(d["audio.format"]).toUpperCase()} \xB7 ${d["audio.bitrate"] || "64"}k`
+    }
+  ), /* @__PURE__ */ import_react9.default.createElement(Rowx, { k: "\u9650\u901F", v: `${d["limits.rpm"] || "\u2014"} \u6B21/\u5206` }), /* @__PURE__ */ import_react9.default.createElement(Rowx, { k: "\u7F13\u5B58", v: `${d["cache.maxEntries"] || "\u2014"} \u6761 \xB7 TTL ${ttlText(d["cache.ttlSeconds"])}` }), /* @__PURE__ */ import_react9.default.createElement(Rowx, { k: "OpenAI \u7AEF\u70B9", v: d["openaiServer.enabled"] ? "\u5DF2\u5F00\u542F" : "\u5DF2\u5173\u95ED" }), /* @__PURE__ */ import_react9.default.createElement(
     Rowx,
     {
       k: "\u5BF9\u5916\u5730\u5740",
@@ -4062,7 +4120,7 @@ function TrackHeads({
   let note;
   if (!running) note = "\u8D70\u5E26\u505C\u6B62 \xB7 \u65E0\u4FE1\u53F7";
   else if (hybrid.enabled) {
-    const reason = hybrid.lastSwitchReason || (localWarm ? "\u672C\u5730\u5DF2\u5C31\u7EEA\uFF0C\u4E91\u7AEF\u9876\u73ED\u7ED3\u675F" : "\u79BB\u7EBF\uFF0C\u672C\u5730\u5C1A\u672A\u5C31\u7EEA");
+    const reason = hybrid.lastSwitchReasonText || hybrid.lastSwitchReason || (localWarm ? "\u672C\u5730\u5DF2\u5C31\u7EEA\uFF0C\u4E91\u7AEF\u9876\u73ED\u7ED3\u675F" : "\u79BB\u7EBF\uFF0C\u672C\u5730\u5C1A\u672A\u5C31\u7EEA");
     note = `\u6DF7\u5408\u9876\u73ED ${num(hybrid.bootstrapCount)}/${num(hybrid.maxCloudBootstrap)} \xB7 ${reason}`;
   } else if (provider === "local") note = "\u7EAF\u672C\u5730\u6E32\u67D3 \xB7 \u4E91\u7AEF\u5F85\u547D";
   else if (provider === "openai") note = `OpenAI \u517C\u5BB9 \xB7 ${openai.model || "tts-1"}`;
@@ -4261,8 +4319,8 @@ function Inspector({ running, live, service, localInfo, config, item, items, onA
   const localResident = localIdleSec === 0;
   const localHoldRemain = num(localInfo?.warmHoldRemainingSec);
   const localHint = !localEnabled ? "\u5F53\u524D\u6E32\u67D3\u6765\u6E90\u4E0D\u4F7F\u7528\u672C\u5730\u5F15\u64CE" : localResident ? "\u5E38\u9A7B\u5185\u5B58\uFF08\u4E0D\u81EA\u52A8\u5378\u8F7D \xB7 \u7EA6 1\u20132.3 GB\uFF09" : localWarm ? localHoldRemain > 0 ? `\u9884\u70ED\u4FDD\u6D3B\u4E2D\uFF08\u4F59 ${localHoldRemain}s\uFF09\xB7 \u7A7A\u95F2 ${localIdleSec}s \u5378\u8F7D` : `\u7A7A\u95F2 ${localIdleSec}s \u81EA\u52A8\u5378\u8F7D` : `\u4E91\u7AEF\u9876\u73ED\uFF08\u6700\u591A ${num(hybrid.maxCloudBootstrap)} \u6BB5\uFF09`;
-  const hybridNote = hybrid.enabled ? localWarm ? `\u9876\u73ED ${num(hybrid.bootstrapCount)}/${num(hybrid.maxCloudBootstrap)} \u6BB5 \xB7 ${hybrid.lastSwitchReason || "\u672C\u5730\u5DF2\u5C31\u7EEA"}` : `\u4E91\u7AEF\u9876\u73ED\uFF08\u6700\u591A ${num(hybrid.maxCloudBootstrap)} \u6BB5\uFF09` : provider === "local" ? "\u7EAF\u672C\u5730\u6E32\u67D3 \xB7 \u4E91\u7AEF\u5F85\u547D" : provider === "openai" ? `OpenAI \u517C\u5BB9 \xB7 ${cfg.upstream?.openai?.baseUrl || ""}` : "\u7EAF\u4E91\u7AEF\u6E32\u67D3 \xB7 \u672C\u5730\u672A\u53C2\u4E0E";
-  return /* @__PURE__ */ import_react12.default.createElement("aside", { className: "inspector", "aria-label": "\u62FE\u53D6\u5934 \xB7 \u9009\u4E2D\u7247\u6BB5\u4E0E\u5F15\u64CE\u8BFB\u6570" }, /* @__PURE__ */ import_react12.default.createElement("div", { className: "ins-online" }, /* @__PURE__ */ import_react12.default.createElement("div", { className: "ins-block" }, /* @__PURE__ */ import_react12.default.createElement("div", { className: "ins-hd" }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "silk" }, "PICKUP ", /* @__PURE__ */ import_react12.default.createElement("b", null, "\u62FE\u53D6\u5934")), /* @__PURE__ */ import_react12.default.createElement("span", { className: "cn" }, item ? `${mmssTenth(item.startSec)} \u2013 ${mmssTenth(item.endSec)}` : "\u7B49\u5F85\u7247\u6BB5")), /* @__PURE__ */ import_react12.default.createElement("div", { className: "pick-tags" }, tags), /* @__PURE__ */ import_react12.default.createElement("p", { className: "pick-text" }, item ? item.text || "\uFF08\u8FD9\u6BB5\u6CA1\u6709\u6587\u672C\uFF09" : "\u8FD8\u6CA1\u6709\u7247\u6BB5\u3002\u8BA9\u9605\u8BFB App \u6717\u8BFB\u4E00\u6BB5\uFF0C\u8FD9\u91CC\u4F1A\u663E\u793A\u6B63\u5728\u5408\u6210\u7684\u53E5\u5B50\u3002"), /* @__PURE__ */ import_react12.default.createElement("div", { className: "pick-meta" }, /* @__PURE__ */ import_react12.default.createElement("div", { className: "kv" }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "k" }, "\u5EF6\u8FDF LATENCY"), /* @__PURE__ */ import_react12.default.createElement("span", { className: "v" }, item ? item.error ? "\u5931\u8D25" : latSec(item.latencyMs) : "\u2014")), /* @__PURE__ */ import_react12.default.createElement("div", { className: "kv" }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "k" }, "\u5B57\u6570 CHARS"), /* @__PURE__ */ import_react12.default.createElement("span", { className: "v" }, item ? `${item.chars} \u5B57` : "\u2014")), /* @__PURE__ */ import_react12.default.createElement("div", { className: "kv" }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "k" }, "\u97F3\u9891 AUDIO"), /* @__PURE__ */ import_react12.default.createElement("span", { className: "v" }, item && item.audioSeconds > 0 ? `${item.audioSeconds.toFixed(1)} s` : "\u2014")), /* @__PURE__ */ import_react12.default.createElement("div", { className: "kv" }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "k" }, "\u6BB5 SEG"), /* @__PURE__ */ import_react12.default.createElement("span", { className: "v" }, item ? `${item.segments} \u6BB5` : "\u2014")), /* @__PURE__ */ import_react12.default.createElement("div", { className: "kv" }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "k" }, "\u5230\u8FBE AT"), /* @__PURE__ */ import_react12.default.createElement("span", { className: "v" }, item ? clock(item.at) : "\u2014")), /* @__PURE__ */ import_react12.default.createElement("div", { className: "kv" }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "k" }, "\u89D2\u8272 ROLE"), /* @__PURE__ */ import_react12.default.createElement("span", { className: "v" }, item ? ROLE_CN[item.role] || item.role : "\u2014"))), /* @__PURE__ */ import_react12.default.createElement("div", { className: "pick-device" }, /* @__PURE__ */ import_react12.default.createElement("span", null, "\u8BBE\u5907"), /* @__PURE__ */ import_react12.default.createElement("b", null, item ? `${deviceOf(item.client)} \xB7 ${ipOf(item.client)}` : "\u2014"))), /* @__PURE__ */ import_react12.default.createElement("div", { className: "ins-block" }, /* @__PURE__ */ import_react12.default.createElement("div", { className: "ins-hd" }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "silk" }, "ENGINE ", /* @__PURE__ */ import_react12.default.createElement("b", null, "\u5F15\u64CE")), /* @__PURE__ */ import_react12.default.createElement("span", { className: "cn" }, PROVIDER_CN[provider] || provider)), /* @__PURE__ */ import_react12.default.createElement("div", { className: "eng" }, /* @__PURE__ */ import_react12.default.createElement("div", { className: localRowCls.join(" ") }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "ld" }), /* @__PURE__ */ import_react12.default.createElement("b", null, "\u672C\u5730 Qwen3-TTS"), /* @__PURE__ */ import_react12.default.createElement("span", { className: "st" }, !localEnabled ? "\u672A\u542F\u7528" : localWarm ? "\u70ED" : localState === "starting" ? "\u52A0\u8F7D\u4E2D" : localState === "error" ? "\u51FA\u9519" : "\u5DF2\u5378\u8F7D"), /* @__PURE__ */ import_react12.default.createElement("span", { className: "val" }, localWarm && num(localInfo?.rssMb) > 0 ? `${(num(localInfo.rssMb) / 1024).toFixed(1)} GB` : "\u2014")), /* @__PURE__ */ import_react12.default.createElement("div", { className: "eng-sub" }, engLocalSub), /* @__PURE__ */ import_react12.default.createElement("div", { className: "eng-act" }, /* @__PURE__ */ import_react12.default.createElement(
+  const hybridNote = hybrid.enabled ? localWarm ? `\u9876\u73ED ${num(hybrid.bootstrapCount)}/${num(hybrid.maxCloudBootstrap)} \u6BB5 \xB7 ${hybrid.lastSwitchReasonText || hybrid.lastSwitchReason || "\u672C\u5730\u5DF2\u5C31\u7EEA"}` : `\u4E91\u7AEF\u9876\u73ED\uFF08\u6700\u591A ${num(hybrid.maxCloudBootstrap)} \u6BB5\uFF09` : provider === "local" ? "\u7EAF\u672C\u5730\u6E32\u67D3 \xB7 \u4E91\u7AEF\u5F85\u547D" : provider === "openai" ? `OpenAI \u517C\u5BB9 \xB7 ${cfg.upstream?.openai?.baseUrl || ""}` : "\u7EAF\u4E91\u7AEF\u6E32\u67D3 \xB7 \u672C\u5730\u672A\u53C2\u4E0E";
+  return /* @__PURE__ */ import_react12.default.createElement("aside", { className: "inspector", "aria-label": "\u62FE\u53D6\u5934 \xB7 \u9009\u4E2D\u7247\u6BB5\u4E0E\u5F15\u64CE\u8BFB\u6570" }, /* @__PURE__ */ import_react12.default.createElement("div", { className: "ins-online" }, /* @__PURE__ */ import_react12.default.createElement("div", { className: "ins-block" }, /* @__PURE__ */ import_react12.default.createElement("div", { className: "ins-hd" }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "silk" }, "PICKUP ", /* @__PURE__ */ import_react12.default.createElement("b", null, "\u62FE\u53D6\u5934")), /* @__PURE__ */ import_react12.default.createElement("span", { className: "cn" }, item ? `${mmssTenth(item.startSec)} \u2013 ${mmssTenth(item.endSec)}` : "\u7B49\u5F85\u7247\u6BB5")), /* @__PURE__ */ import_react12.default.createElement("div", { className: "pick-tags" }, tags), /* @__PURE__ */ import_react12.default.createElement("p", { className: "pick-text" }, item ? item.text || "\uFF08\u8FD9\u6BB5\u6CA1\u6709\u6587\u672C\uFF09" : "\u8FD8\u6CA1\u6709\u7247\u6BB5\u3002\u8BA9\u9605\u8BFB App \u6717\u8BFB\u4E00\u6BB5\uFF0C\u8FD9\u91CC\u4F1A\u663E\u793A\u6B63\u5728\u5408\u6210\u7684\u53E5\u5B50\u3002"), item?.error && (item.errorMessage || item.errorHint) && /* @__PURE__ */ import_react12.default.createElement("div", { style: { fontSize: 11, color: "var(--grease)", marginBottom: 6, lineHeight: 1.45 } }, /* @__PURE__ */ import_react12.default.createElement("b", null, item.errorMessage || "\u8BF7\u6C42\u5931\u8D25"), item.errorHint ? ` \xB7 ${item.errorHint}` : ""), /* @__PURE__ */ import_react12.default.createElement("div", { className: "pick-meta" }, /* @__PURE__ */ import_react12.default.createElement("div", { className: "kv" }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "k" }, "\u5EF6\u8FDF LATENCY"), /* @__PURE__ */ import_react12.default.createElement("span", { className: "v" }, item ? item.error ? "\u5931\u8D25" : latSec(item.latencyMs) : "\u2014")), /* @__PURE__ */ import_react12.default.createElement("div", { className: "kv" }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "k" }, "\u5B57\u6570 CHARS"), /* @__PURE__ */ import_react12.default.createElement("span", { className: "v" }, item ? `${item.chars} \u5B57` : "\u2014")), /* @__PURE__ */ import_react12.default.createElement("div", { className: "kv" }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "k" }, "\u97F3\u9891 AUDIO"), /* @__PURE__ */ import_react12.default.createElement("span", { className: "v" }, item && item.audioSeconds > 0 ? `${item.audioSeconds.toFixed(1)} s` : "\u2014")), /* @__PURE__ */ import_react12.default.createElement("div", { className: "kv" }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "k" }, "\u6BB5 SEG"), /* @__PURE__ */ import_react12.default.createElement("span", { className: "v" }, item ? `${item.segments} \u6BB5` : "\u2014")), /* @__PURE__ */ import_react12.default.createElement("div", { className: "kv" }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "k" }, "\u5230\u8FBE AT"), /* @__PURE__ */ import_react12.default.createElement("span", { className: "v" }, item ? clock(item.at) : "\u2014")), /* @__PURE__ */ import_react12.default.createElement("div", { className: "kv" }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "k" }, "\u89D2\u8272 ROLE"), /* @__PURE__ */ import_react12.default.createElement("span", { className: "v" }, item ? ROLE_CN[item.role] || item.role : "\u2014"))), /* @__PURE__ */ import_react12.default.createElement("div", { className: "pick-device" }, /* @__PURE__ */ import_react12.default.createElement("span", null, "\u8BBE\u5907"), /* @__PURE__ */ import_react12.default.createElement("b", null, item ? `${deviceOf(item.client)} \xB7 ${ipOf(item.client)}` : "\u2014"))), /* @__PURE__ */ import_react12.default.createElement("div", { className: "ins-block" }, /* @__PURE__ */ import_react12.default.createElement("div", { className: "ins-hd" }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "silk" }, "ENGINE ", /* @__PURE__ */ import_react12.default.createElement("b", null, "\u5F15\u64CE")), /* @__PURE__ */ import_react12.default.createElement("span", { className: "cn" }, PROVIDER_CN[provider] || provider)), /* @__PURE__ */ import_react12.default.createElement("div", { className: "eng" }, /* @__PURE__ */ import_react12.default.createElement("div", { className: localRowCls.join(" ") }, /* @__PURE__ */ import_react12.default.createElement("span", { className: "ld" }), /* @__PURE__ */ import_react12.default.createElement("b", null, "\u672C\u5730 Qwen3-TTS"), /* @__PURE__ */ import_react12.default.createElement("span", { className: "st" }, !localEnabled ? "\u672A\u542F\u7528" : localWarm ? "\u70ED" : localState === "starting" ? "\u52A0\u8F7D\u4E2D" : localState === "error" ? "\u51FA\u9519" : "\u5DF2\u5378\u8F7D"), /* @__PURE__ */ import_react12.default.createElement("span", { className: "val" }, localWarm && num(localInfo?.rssMb) > 0 ? `${(num(localInfo.rssMb) / 1024).toFixed(1)} GB` : "\u2014")), /* @__PURE__ */ import_react12.default.createElement("div", { className: "eng-sub" }, engLocalSub), /* @__PURE__ */ import_react12.default.createElement("div", { className: "eng-act" }, /* @__PURE__ */ import_react12.default.createElement(
     "button",
     {
       className: "btn btn--sm",
@@ -4869,6 +4927,7 @@ function Panel() {
       DeliveryView,
       {
         service,
+        live,
         config,
         importInfo: state.import || {},
         tunnel: state.tunnel || {},
@@ -4877,6 +4936,16 @@ function Panel() {
         onCopy,
         onExportConfig: exportConfig,
         onOpenSetup: () => setSetupOpen(true),
+        onDiagAction: async (action) => {
+          if (action === "start-service") {
+            await act("start");
+            return;
+          }
+          if (action === "switch-local") {
+            await applySetupPatch({ upstream: { provider: "local" } });
+            showToast("\u5DF2\u5207\u6362\u6E32\u67D3\u6765\u6E90\u4E3A\uFF1A\u672C\u5730 Qwen3-TTS");
+          }
+        },
         showToast
       }
     );
