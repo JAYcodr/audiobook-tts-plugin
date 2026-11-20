@@ -59,8 +59,10 @@ npm publish --registry=https://registry.npmjs.org/
 ```
 
 - 命令会打印一个 `https://www.npmjs.com/auth/cli/...` 授权链接，按回车打开浏览器，用维护者账号确认
-- 新包 / 新版本会走 **staged publishing**：注册表先出现 `0.0.0-stage` 占位版本，真正的版本
-  通常 1–2 分钟内自动放行
+- 新包 / 新版本会走 **staged publishing**：注册表先出现 `0.0.0-stage` 占位版本，真正的版本稍后自动放行
+- **放行延迟实测可达 9 分钟**（2026-11-20 发 0.6.0：`exit 0` 后查询该版本一直是 404，
+  约 9 分钟后才出现）。这期间 `npm view` / `/latest` / tarball URL 全部 404，**不要误判为发布失败**，
+  更不要换版本号重发——会撞 409
 - 若网页提示待批准：登录 npmjs.com → **Staged Packages** → 找到版本 → Approve（要 2FA）
 - 终止信号：`+ audiobook-tts-plugin@0.5.2`
 
@@ -75,6 +77,20 @@ npm view audiobook-tts-plugin@0.5.2 bin --registry=https://registry.npmjs.org/
 - `bin` 里要有 `audiobook-tts` 和 `mimo-tts`，路径不带 `./`
 
 ## 6. 更新 DSH 里的插件
+
+> ⚠️ **跨 minor 版本（0.5 → 0.6）时 `update` 不生效。**
+>
+> profile 的 `package.json` 里记的是 `"audiobook-tts-plugin": "^0.5.2"`，而 `^0.5.2` 等价于
+> `>=0.5.2 <0.6.0`——`0.6.0` 不在范围内，pnpm 判定「已满足」直接跳过，输出 `Done` 但版本没变。
+> 这是 0.x 的语义化规则，不是 pnpm 的 bug。
+>
+> 跨 minor 必须显式指定：
+>
+> ```bash
+> dsh plugin --profile desktop add audiobook-tts-plugin@^0.6.0 --registry=https://registry.npmjs.org/
+> ```
+>
+> 同一 minor 内的补丁版本（0.6.0 → 0.6.1）用 `update` 就行。
 
 ```bash
 dsh plugin --profile desktop update audiobook-tts-plugin --registry=https://registry.npmjs.org/
@@ -112,6 +128,8 @@ curl -s http://127.0.0.1:8292/health
 | `npm view` 只看到 `0.0.0-stage` | 新包占位版本，正常 | 等自动放行；用 `--prefer-online` 复查 |
 | 安装到了空壳（没有代码） | 在 staged 放行前就安装了占位版本 | 等 `latest` 指向真实版本后重装 |
 | `bin` 命令不见了 | `bin` 路径带了 `./` 被 npm 删掉 | 去掉 `./` 后发新补丁版本 |
+| `update` 输出 `Done`，但版本没变 | 跨 minor，`^0.5.x` 不含 `0.6.0` | 用 `add audiobook-tts-plugin@^0.6.0` 显式装 |
+| 刚发完就 `npm view` 查不到新版本 | 后处理延迟（实测可达 9 分钟） | 等；别换版本号重发，会 409 |
 
 ## 首次发布备忘（已完成）
 
