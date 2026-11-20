@@ -2,7 +2,7 @@
 
 所有显著改动均记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## [未发布]
+## [0.6.0] - 2026-11-20
 
 ### 新增
 - **按引擎拆分限速闸门（#10）**：`local` 本地引擎改用无阻塞 `NoopGate`，`mimo` 与 `openai` 各自持有独立 `RpmGate`；`hybrid` 按段来源精准路由云/本闸门，`/health`、`/api/state`、`/api/live` 新增分引擎 `rpmByProvider` 与时间线分灯显示。

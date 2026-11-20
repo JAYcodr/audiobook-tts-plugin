@@ -35,7 +35,7 @@ import { LEGADO_FORMATS, transcodeWav } from './transcode.mjs'
 import { TunnelManager } from './tunnel-manager.mjs'
 import { concatWavs } from './wav.mjs'
 
-export const VERSION = '0.5.2'
+export const VERSION = '0.6.0'
 
 export class TtsService {
   /**

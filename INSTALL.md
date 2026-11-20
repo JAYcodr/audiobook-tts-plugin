@@ -70,16 +70,16 @@ ls ~/dsh-plugins/audiobook-tts-plugin/refs/
 
 ### 2.2 从 npm 安装（推荐给普通用户）
 
-不需要先 clone 仓库。装上 npm 上已发布的版本（把 `0.5.2` 换成你想装的版本）：
+不需要先 clone 仓库。装上 npm 上已发布的版本（把 `0.6.0` 换成你想装的版本）：
 
 ```bash
-dsh plugin --profile desktop add audiobook-tts-plugin@^0.5.2
+dsh plugin --profile desktop add audiobook-tts-plugin@^0.6.0
 ```
 
 本机 `npm config get registry` 如果指向 npmmirror 之类的镜像，建议显式走官方源（镜像同步新版本可能滞后）：
 
 ```bash
-dsh plugin --profile desktop add audiobook-tts-plugin@^0.5.2 --registry=https://registry.npmjs.org/
+dsh plugin --profile desktop add audiobook-tts-plugin@^0.6.0 --registry=https://registry.npmjs.org/
 ```
 
 以后升级只要：
@@ -138,7 +138,7 @@ dsh plugin --profile desktop add link:$HOME/dsh-plugins/audiobook-tts-plugin/mim
 grep -n "audiobook-tts-plugin" ~/.dsh/profiles/desktop/package.json
 ```
 
-应该能看到两处：`dependencies` 里的 `"audiobook-tts-plugin": "^0.5.2"`（npm 安装）或 `"link:/.../audiobook-tts-plugin/mimo-tts"`（本地安装），
+应该能看到两处：`dependencies` 里的 `"audiobook-tts-plugin": "^0.6.0"`（npm 安装）或 `"link:/.../audiobook-tts-plugin/mimo-tts"`（本地安装），
 和 `bundles` 里的 `"audiobook-tts-plugin"`。
 
 ---

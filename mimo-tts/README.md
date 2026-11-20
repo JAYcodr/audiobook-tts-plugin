@@ -9,7 +9,7 @@
 
 ```bash
 # 1) DSH 插件形态（npm 安装，推荐）
-dsh plugin --profile desktop add audiobook-tts-plugin@^0.5.2
+dsh plugin --profile desktop add audiobook-tts-plugin@^0.6.0
 # 升级（装完要完全退出并重启 DSH，禁用/启用插件不够）
 dsh plugin --profile desktop update audiobook-tts-plugin
 # 本地开发时改用 link（改完代码立即生效）
