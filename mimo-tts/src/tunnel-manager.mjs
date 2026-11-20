@@ -8,15 +8,13 @@
  *   - 单实例互斥锁；停服或退出时按进程组 SIGTERM -> SIGKILL 彻底回收，杜绝孤儿进程；
  *   - detectHttpsTools() 严格只读且超时 3 秒，绝不修改用户配置或触发登录。
  */
-import { execFile, spawn, spawnSync } from 'node:child_process'
+import { execa } from 'execa'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { promisify } from 'node:util'
 import { findBinary, resolveRepoRoot } from './paths.mjs'
+import { bindGroupCancel, runSyncCmd, streamLines } from './proc.mjs'
 
 export { findBinary }
-
-const execFileAsync = promisify(execFile)
 
 export const ALLOWED_TUNNEL_PROTOCOLS = new Set(['http2', 'quic', 'auto'])
 export const TRY_CLOUDFLARE_FIND_RE = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i
@@ -34,7 +32,7 @@ export class TunnelError extends Error {
 }
 
 function defaultRunSync(cmd, args, timeout = DETECT_TIMEOUT_MS) {
-  return spawnSync(cmd, args, { encoding: 'utf8', timeout })
+  return runSyncCmd(cmd, args, timeout)
 }
 
 function firstLine(text) {
@@ -137,8 +135,7 @@ export class TunnelManager {
     cloudflaredBin = '',
     syncScriptPath = '',
     syncKvImpl = null,
-    spawnImpl = spawn,
-    execFileImpl = execFileAsync,
+    execaImpl = execa,
     probe = null,
   } = {}) {
     this.getConfig = getConfig
@@ -146,8 +143,7 @@ export class TunnelManager {
     this.cloudflaredBin = cloudflaredBin
     this.syncScriptPath = syncScriptPath
     this.syncKvImpl = syncKvImpl
-    this.spawnImpl = spawnImpl
-    this.execFileImpl = execFileImpl
+    this.execaImpl = execaImpl
     this.probe = probe
 
     this.state = 'idle' // idle | starting | running | stopping | error
@@ -159,6 +155,8 @@ export class TunnelManager {
     this.error = ''
     this.logs = []
     this.proc = null
+    this.cancelCtrl = null
+    this.donePromise = null
     this.stopping = false
     this.kvSync = {
       state: 'idle', // idle | syncing | ok | skipped | error
@@ -225,12 +223,18 @@ export class TunnelManager {
       '--protocol',
       cleanProto,
     ]
-    const proc = this.spawnImpl(bin, args, {
+    const ac = new AbortController()
+    const sub = this.execaImpl(bin, args, {
       detached: process.platform !== 'win32',
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdin: 'ignore',
+      cancelSignal: ac.signal,
+      forceKillAfterDelay: 2500,
+      reject: false,
     })
-    this.proc = proc
-    this.pid = proc.pid || null
+    this.proc = sub
+    this.cancelCtrl = ac
+    this.pid = sub.pid || null
+    const cleanupCancel = bindGroupCancel(sub, ac.signal, 2500)
     this.#appendLog(`[tunnel] 启动 Quick Tunnel (${cleanProto} -> 127.0.0.1:${cleanPort})`)
 
     let settled = false
@@ -255,13 +259,13 @@ export class TunnelManager {
     timer?.unref?.()
 
     const onUrl = (captured) => {
-      if (this.proc !== proc || this.stopping) return
+      if (this.proc !== sub || this.stopping) return
       if (!TRY_CLOUDFLARE_STRICT_RE.test(captured)) return
       if (!this.quickUrl) {
         this.quickUrl = captured
         this.state = 'running'
         this.startedAt = Date.now()
-        this.pid = proc.pid || null
+        this.pid = sub.pid || null
         this.log(`[tunnel] Quick Tunnel 就绪: ${captured}`)
         if (this.getConfig().tunnel?.kvSync?.enabled) {
           this.#triggerAutoKvSync(captured)
@@ -270,52 +274,69 @@ export class TunnelManager {
       }
     }
 
-    if (proc.stdout) this.#bindStream(proc.stdout, onUrl)
-    if (proc.stderr) this.#bindStream(proc.stderr, onUrl)
-
-    proc.on('error', (err) => {
-      if (this.proc !== proc) return
-      this.proc = null
-      this.pid = null
-      this.quickUrl = ''
-      this.startedAt = 0
-      this.error = String(err?.message || err)
-      this.state = this.stopping ? 'idle' : 'error'
-      this.#appendLog(`[tunnel] 进程启动异常: ${this.error}`)
-      finishReady(this.stopping ? null : new TunnelError(`cloudflared 启动失败：${this.error}`, 502, 'spawn_failed'))
+    const drainLines = streamLines(sub, {
+      onStdout: (line) => this.#handleLine(line, onUrl),
+      onStderr: (line) => this.#handleLine(line, onUrl),
     })
 
-    proc.on('close', (code) => {
-      if (this.proc !== proc) return
-      this.proc = null
-      this.pid = null
-      const wasStopping = this.stopping
-      const hadUrl = Boolean(this.quickUrl)
-      this.quickUrl = ''
-      this.startedAt = 0
-      if (wasStopping) {
+    const done = (async () => {
+      try {
+        const res = await sub
+        await drainLines
+        if (this.proc !== sub) return
+        const wasStopping = this.stopping
+        const hadUrl = Boolean(this.quickUrl)
+        this.quickUrl = ''
+        this.startedAt = 0
+        if (wasStopping || res?.isCanceled) {
+          this.state = 'idle'
+          this.#appendLog('[tunnel] Quick Tunnel 已停止')
+          finishReady(null)
+          return
+        }
+        if (res?.failed && !sub.pid) {
+          this.state = 'error'
+          this.error = String(res.shortMessage || res.originalMessage || 'spawn failed')
+          this.#appendLog(`[tunnel] 进程启动异常: ${this.error}`)
+          finishReady(new TunnelError(`cloudflared 启动失败：${this.error}`, 502, 'spawn_failed'))
+          return
+        }
+        if (!hadUrl || (res?.exitCode !== 0 && res?.exitCode != null) || res?.failed) {
+          this.state = 'error'
+          this.error = this.error
+            || String(res?.shortMessage || '')
+            || `cloudflared 意外退出 (code=${res?.exitCode})`
+          this.#appendLog(`[tunnel] ${this.error}`)
+          finishReady(new TunnelError(this.error, 502, 'tunnel_exited'))
+          return
+        }
         this.state = 'idle'
-        this.#appendLog('[tunnel] Quick Tunnel 已停止')
         finishReady(null)
-        return
+      } catch (err) {
+        if (this.proc !== sub) return
+        this.quickUrl = ''
+        this.startedAt = 0
+        this.error = String(err?.message || err)
+        this.state = this.stopping ? 'idle' : 'error'
+        this.#appendLog(`[tunnel] 进程启动异常: ${this.error}`)
+        finishReady(this.stopping ? null : new TunnelError(`cloudflared 启动失败：${this.error}`, 502, 'spawn_failed'))
+      } finally {
+        cleanupCancel()
+        if (this.proc === sub) {
+          this.proc = null
+          this.cancelCtrl = null
+          this.donePromise = null
+          this.pid = null
+        }
       }
-      if (!hadUrl || (code !== 0 && code !== null)) {
-        this.state = 'error'
-        this.error = this.error || `cloudflared 意外退出 (code=${code})`
-        this.#appendLog(`[tunnel] ${this.error}`)
-        finishReady(new TunnelError(this.error, 502, 'tunnel_exited'))
-        return
-      }
-      this.state = 'idle'
-      finishReady(null)
-    })
+    })()
+    this.donePromise = done
 
     return readyPromise
   }
 
   async stop() {
-    const proc = this.proc
-    if (!proc) {
+    if (!this.proc) {
       this.state = 'idle'
       this.quickUrl = ''
       this.pid = null
@@ -325,22 +346,12 @@ export class TunnelManager {
     this.stopping = true
     this.state = 'stopping'
     this.#appendLog('[tunnel] 正在终止 Quick Tunnel 进程组…')
-
-    const waitClose = new Promise((resolve) => {
-      const killer = setTimeout(() => {
-        this.#killGroup(proc, 'SIGKILL')
-        resolve()
-      }, 2500)
-      killer.unref?.()
-      proc.once('close', () => {
-        clearTimeout(killer)
-        resolve()
-      })
-    })
-    this.#killGroup(proc, 'SIGTERM')
-    await waitClose
+    this.cancelCtrl?.abort()
+    await this.donePromise
 
     this.proc = null
+    this.cancelCtrl = null
+    this.donePromise = null
     this.pid = null
     this.quickUrl = ''
     this.startedAt = 0
@@ -396,9 +407,10 @@ export class TunnelManager {
       if (kv.accountId) args.push('--account-id', String(kv.accountId).trim())
       if (kv.keyName) args.push('--key', String(kv.keyName).trim())
 
-      const { stdout } = await this.execFileImpl(process.execPath, args, {
+      const { stdout } = await this.execaImpl(process.execPath, args, {
         timeout: 15_000,
         env: process.env,
+        stdin: 'ignore',
       })
       this.kvSync = {
         state: 'ok',
@@ -422,34 +434,6 @@ export class TunnelManager {
   #triggerAutoKvSync(url) {
     this.syncKv(url).catch((err) => {
       this.log(`[warn] 自动同步 Cloudflare KV 失败：${err?.message || err}`)
-    })
-  }
-
-  #killGroup(proc, sig) {
-    if (process.platform !== 'win32' && proc.pid) {
-      try {
-        process.kill(-proc.pid, sig)
-        return
-      } catch { /* fallback */ }
-    }
-    try { proc.kill(sig) } catch { /* ignore */ }
-  }
-
-  #bindStream(stream, onUrl) {
-    let buf = ''
-    stream.setEncoding('utf8')
-    stream.on('data', (chunk) => {
-      buf += chunk
-      let nl
-      while ((nl = buf.indexOf('\n')) !== -1) {
-        const line = buf.slice(0, nl).replace(/\r/g, '').trimEnd()
-        buf = buf.slice(nl + 1)
-        if (line) this.#handleLine(line, onUrl)
-      }
-    })
-    stream.on('end', () => {
-      const tail = buf.replace(/\r/g, '').trimEnd()
-      if (tail) this.#handleLine(tail, onUrl)
     })
   }
 

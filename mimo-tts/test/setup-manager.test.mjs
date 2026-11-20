@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Store } from '../src/config.mjs'
@@ -187,11 +187,14 @@ test('SetupManager 仅允许白名单任务与合法镜像、支持流式日志�
     ].join('\n'))
     chmodSync(okScript, 0o755)
 
+    const childPidFile = join(dir, 'setup-child.pid')
     const slowScript = join(dir, 'slow-download.sh')
     writeFileSync(slowScript, [
       '#!/usr/bin/env bash',
       'echo "[1/3] 开始下载"',
-      'sleep 30',
+      'sleep 30 &',
+      `echo $! > "${childPidFile}"`,
+      'wait',
     ].join('\n'))
     chmodSync(slowScript, 0o755)
 
@@ -257,7 +260,7 @@ test('SetupManager 仅允许白名单任务与合法镜像、支持流式日志�
     const tailRes = await callSvc(svc, { url: `/api/setup/status?since=${stPayload.nextCursor}` })
     assert.deepEqual(JSON.parse(tailRes.bodyText).lines, [])
 
-    // 启动长任务并取消
+    // 启动长任务并取消：验证父进程组与后台子孙进程（sleep 30 &）均彻底回收
     const runSlow = await callSvc(svc, {
       method: 'POST',
       url: '/api/setup/run',
@@ -265,10 +268,13 @@ test('SetupManager 仅允许白名单任务与合法镜像、支持流式日志�
       body: JSON.stringify({ task: 'download-model' }),
     })
     assert.equal(runSlow.status, 202)
-    await new Promise((r) => setTimeout(r, 80))
+    await new Promise((r) => setTimeout(r, 120))
+    const setupChildPid = Number(readFileSync(childPidFile, 'utf8').trim())
+    assert.ok(setupChildPid > 0)
     const cancelRes = await callSvc(svc, { method: 'POST', url: '/api/setup/cancel' })
     assert.equal(cancelRes.status, 200)
     assert.equal(JSON.parse(cancelRes.bodyText).state, 'cancelled')
+    assert.throws(() => process.kill(setupChildPid, 0), { code: 'ESRCH' })
 
     const detectRes = await callSvc(svc, { url: '/api/env/detect' })
     assert.equal(detectRes.status, 200)

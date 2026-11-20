@@ -187,6 +187,18 @@ test('TunnelManager 验证白名单协议、捕获 trycloudflare URL、互斥锁
     assert.equal(stopped.quickUrl, '')
     assert.equal(stopped.pid, null)
     assert.throws(() => process.kill(spawnedPid, 0), { code: 'ESRCH' })
+
+    // 6) execa 启动异常 (spawn ENOENT) 返回 TunnelError('spawn_failed') 且清理状态
+    const brokenMgr = new TunnelManager({
+      getConfig: () => currentCfg,
+      cloudflaredBin: join(dir, 'nonexistent-cloudflared'),
+      log: () => {},
+    })
+    await assert.rejects(
+      () => brokenMgr.startQuick({ port: 8291, protocol: 'http2', waitUrlMs: 2000 }),
+      (err) => err instanceof TunnelError && err.code === 'spawn_failed',
+    )
+    assert.equal(brokenMgr.status().state, 'error')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

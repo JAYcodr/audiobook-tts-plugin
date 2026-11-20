@@ -7,13 +7,14 @@
  *   - 单任务互斥锁；取消或停服时按进程组 SIGTERM -> SIGKILL 彻底回收子进程；
  *   - 在线连通性探测绝不在日志或诊断文本中回显真实 API Key。
  */
-import { spawn, spawnSync } from 'node:child_process'
+import { execa } from 'execa'
 import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { lanAddresses } from './auth.mjs'
 import { DEFAULT_MIN_MODEL_BYTES, DEFAULT_MIN_VOCODER_BYTES, validateModelDir } from './local.mjs'
 import { expandHomePath, findBinary, resolveRepoRoot } from './paths.mjs'
+import { bindGroupCancel, runSyncCmd, streamLines } from './proc.mjs'
 import { detectHttpsTools } from './tunnel-manager.mjs'
 
 const DEFAULT_SIDECAR_SCRIPT = fileURLToPath(new URL('../sidecar/server.py', import.meta.url))
@@ -37,7 +38,7 @@ export class SetupError extends Error {
 }
 
 function defaultRunSync(cmd, args, timeout = 4000) {
-  return spawnSync(cmd, args, { encoding: 'utf8', timeout })
+  return runSyncCmd(cmd, args, timeout)
 }
 
 function fileSizeMb(path) {
@@ -484,6 +485,7 @@ export class SetupManager {
     minVocoderBytes = DEFAULT_MIN_VOCODER_BYTES,
     minModelBytes = DEFAULT_MIN_MODEL_BYTES,
     scriptOverrides = null,
+    execaImpl = execa,
   } = {}) {
     this.dataDir = dataDir
     this.refsStore = refsStore
@@ -491,6 +493,7 @@ export class SetupManager {
     this.log = log
     this.minVocoderBytes = minVocoderBytes
     this.minModelBytes = minModelBytes
+    this.execaImpl = execaImpl
 
     const repoRoot = resolveRepoRoot()
     this.scripts = {
@@ -511,6 +514,8 @@ export class SetupManager {
     this.lines = []
     this.nextSeq = 1
     this.proc = null
+    this.cancelCtrl = null
+    this.donePromise = null
     this.stopping = false
     this.lastDetect = null
   }
@@ -616,106 +621,84 @@ export class SetupManager {
       HF_ENDPOINT: cleanEndpoint,
       PYTHONUNBUFFERED: '1',
     }
-    const proc = spawn('bash', [script], {
+    const ac = new AbortController()
+    const sub = this.execaImpl('bash', [script], {
       cwd: this.dataDir,
       env,
       detached: process.platform !== 'win32',
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdin: 'ignore',
+      cancelSignal: ac.signal,
+      forceKillAfterDelay: 2500,
+      reject: false,
     })
-    this.proc = proc
+    this.proc = sub
+    this.cancelCtrl = ac
+    const cleanupCancel = bindGroupCancel(sub, ac.signal, 2500)
     this.#appendLine('stdout', `[setup] 启动任务 ${cleanTask}${cleanEndpoint ? ` (${cleanEndpoint})` : ''}`)
 
-    this.#bindStream(proc.stdout, 'stdout')
-    this.#bindStream(proc.stderr, 'stderr')
-
-    proc.on('error', (err) => {
-      if (this.proc !== proc) return
-      this.proc = null
-      this.finishedAt = Date.now()
-      this.error = String(err?.message || err)
-      this.state = this.stopping ? 'cancelled' : 'failed'
-      this.#appendLine('stderr', `[setup] 进程错误：${this.error}`)
-      this.detect()
+    const drainLines = streamLines(sub, {
+      onStdout: (line) => this.#handleLine('stdout', line),
+      onStderr: (line) => this.#handleLine('stderr', line),
     })
 
-    proc.on('close', (code) => {
-      if (this.proc !== proc) return
-      this.proc = null
-      this.finishedAt = Date.now()
-      this.exitCode = code
-      if (this.stopping) {
-        this.state = 'cancelled'
-        this.progressText = '任务已手动取消'
-        this.#appendLine('stderr', '[setup] 任务已取消')
-      } else if (code === 0) {
-        this.state = 'succeeded'
-        this.step = this.totalSteps
-        this.progressText = '全部步骤已完成'
-        this.#appendLine('stdout', '[setup] 任务执行成功')
-      } else {
-        this.state = 'failed'
-        this.error = this.error || `脚本退出码 ${code}`
-        this.#appendLine('stderr', `[setup] 任务失败，退出码 ${code}`)
+    const done = (async () => {
+      try {
+        const res = await sub
+        await drainLines
+        if (this.proc !== sub) return
+        this.finishedAt = Date.now()
+        this.exitCode = typeof res?.exitCode === 'number' ? res.exitCode : null
+        if (this.stopping || res?.isCanceled) {
+          this.state = 'cancelled'
+          this.progressText = '任务已手动取消'
+          this.#appendLine('stderr', '[setup] 任务已取消')
+        } else if (res?.exitCode === 0 && !res?.failed) {
+          this.state = 'succeeded'
+          this.step = this.totalSteps
+          this.progressText = '全部步骤已完成'
+          this.#appendLine('stdout', '[setup] 任务执行成功')
+        } else {
+          this.state = 'failed'
+          this.error = this.error
+            || String(res?.shortMessage || res?.originalMessage || '')
+            || (this.exitCode != null ? `脚本退出码 ${this.exitCode}` : '脚本执行失败')
+          this.#appendLine('stderr', `[setup] 任务失败：${this.error}`)
+        }
+        this.detect()
+      } catch (err) {
+        if (this.proc !== sub) return
+        this.finishedAt = Date.now()
+        this.error = String(err?.message || err)
+        this.state = this.stopping ? 'cancelled' : 'failed'
+        this.#appendLine('stderr', `[setup] 进程错误：${this.error}`)
+        this.detect()
+      } finally {
+        cleanupCancel()
+        if (this.proc === sub) {
+          this.proc = null
+          this.cancelCtrl = null
+          this.donePromise = null
+        }
       }
-      this.detect()
-    })
+    })()
+    this.donePromise = done
 
     return this.status({ since: 0 })
   }
 
   async cancel() {
-    const proc = this.proc
-    if (!proc) {
+    if (!this.proc) {
       return this.status({ since: 0 })
     }
     this.stopping = true
     this.#appendLine('stderr', '[setup] 正在终止任务进程组…')
-    const waitClose = new Promise((resolve) => {
-      const killer = setTimeout(() => {
-        this.#killGroup(proc, 'SIGKILL')
-        resolve()
-      }, 2500)
-      killer.unref?.()
-      proc.once('close', () => {
-        clearTimeout(killer)
-        resolve()
-      })
-    })
-    this.#killGroup(proc, 'SIGTERM')
-    await waitClose
+    this.cancelCtrl?.abort()
+    await this.donePromise
     return this.status({ since: 0 })
   }
 
   async shutdown() {
     if (this.proc) await this.cancel()
-  }
-
-  #killGroup(proc, sig) {
-    if (process.platform !== 'win32' && proc.pid) {
-      try {
-        process.kill(-proc.pid, sig)
-        return
-      } catch { /* fallback to single pid */ }
-    }
-    try { proc.kill(sig) } catch { /* ignore */ }
-  }
-
-  #bindStream(stream, streamName) {
-    let buf = ''
-    stream.setEncoding('utf8')
-    stream.on('data', (chunk) => {
-      buf += chunk
-      let nl
-      while ((nl = buf.indexOf('\n')) !== -1) {
-        const line = buf.slice(0, nl).replace(/\r/g, '').trimEnd()
-        buf = buf.slice(nl + 1)
-        if (line) this.#handleLine(streamName, line)
-      }
-    })
-    stream.on('end', () => {
-      const tail = buf.replace(/\r/g, '').trimEnd()
-      if (tail) this.#handleLine(streamName, tail)
-    })
   }
 
   #handleLine(streamName, line) {
