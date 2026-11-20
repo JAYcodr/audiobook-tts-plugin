@@ -41,6 +41,9 @@ export const uploadRefApi = (payload) => api('/refs', { method: 'POST', body: JS
 export const updateRefApi = (id, payload) => api(`/refs/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) })
 export const deleteRefApi = (id) => api(`/refs/${encodeURIComponent(id)}`, { method: 'DELETE' })
 export const refAudioUrl = (id) => `${API}/refs/${encodeURIComponent(id)}/audio`
+export const refRawAudioUrl = (id) => `${API}/refs/${encodeURIComponent(id)}/audio?raw=1`
+export const clipRefApi = (id, payload) => api(`/refs/${encodeURIComponent(id)}/clip`, { method: 'POST', body: JSON.stringify(payload) })
+export const clearRefClipApi = (id) => api(`/refs/${encodeURIComponent(id)}/clip`, { method: 'DELETE' })
 
 export const fetchEnvDetectApi = () => api('/env/detect')
 export const runDoctorApi = (checkNetwork = false) => api('/doctor', { method: 'POST', body: JSON.stringify({ checkNetwork }) })

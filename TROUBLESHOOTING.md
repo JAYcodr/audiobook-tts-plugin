@@ -310,3 +310,4 @@ tail -50 ~/.dsh/plugin-data/audiobook-tts-plugin/local-engine.log 2>/dev/null
 
 然后对照 `INSTALL.md` 对应那一节交互确认。这个包的文档是按真实踩坑写的，
 不要凭印象改配置——尤其是 `stream` 和 `speech_tokenizer` 这两处，改了会以更奇怪的方式坏掉。
+关于 Android Legado 与流式 WAV（`0x7fffffff` 头）的真机测试清单与 `?stream=1` 灰度方法，参见 [mimo-tts/docs/streaming-legado-compat.md](mimo-tts/docs/streaming-legado-compat.md)。

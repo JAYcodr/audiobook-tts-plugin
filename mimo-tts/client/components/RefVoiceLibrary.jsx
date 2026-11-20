@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { deleteRefApi, refAudioUrl, updateRefApi, uploadRefApi } from '../api.js'
+import { WaveformClipper } from './WaveformClipper.jsx'
 
 const MAX_BYTES = 10 * 1024 * 1024
 
@@ -9,6 +10,7 @@ export function RefVoiceLibrary({ refs, onRefsChange, onAssignRef, showToast }) 
   const [file, setFile] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [playingId, setPlayingId] = useState('')
+  const [clippingId, setClippingId] = useState('')
   const [editingId, setEditingId] = useState('')
   const [editName, setEditName] = useState('')
   const [editText, setEditText] = useState('')
@@ -120,6 +122,7 @@ export function RefVoiceLibrary({ refs, onRefsChange, onAssignRef, showToast }) 
                 <span className="mono ref-meta">
                   {it.durationSec ? `${it.durationSec}s` : it.ext || ''}
                   {it.sampleRate ? ` · ${Math.round(it.sampleRate / 1000)}kHz` : ''}
+                  {it.hasClip ? ` · 裁 ${it.clipStart}–${it.clipEnd}s` : ''}
                   {!it.exists ? ' · 文件缺失' : ''}
                 </span>
                 <div className="ref-acts">
@@ -154,6 +157,15 @@ export function RefVoiceLibrary({ refs, onRefsChange, onAssignRef, showToast }) 
                   ) : null}
                   {!it.builtin ? (
                     <>
+                      {it.exists ? (
+                        <button
+                          className="btn btn--sm"
+                          type="button"
+                          onClick={() => setClippingId(clippingId === it.id ? '' : it.id)}
+                        >
+                          {clippingId === it.id ? '收起裁剪' : '波形裁剪'}
+                        </button>
+                      ) : null}
                       <button className="btn btn--sm" type="button" onClick={() => beginEdit(it)}>
                         编辑
                       </button>
@@ -227,7 +239,16 @@ export function RefVoiceLibrary({ refs, onRefsChange, onAssignRef, showToast }) 
                   className="ref-audio"
                   controls
                   autoPlay
-                  src={refAudioUrl(it.id)}
+                  src={`${refAudioUrl(it.id)}?v=${it.updatedAt || it.createdAt || 0}`}
+                />
+              ) : null}
+
+              {clippingId === it.id && !it.builtin && it.exists ? (
+                <WaveformClipper
+                  item={it}
+                  onRefsChange={onRefsChange}
+                  onClose={() => setClippingId('')}
+                  showToast={showToast}
                 />
               ) : null}
             </div>

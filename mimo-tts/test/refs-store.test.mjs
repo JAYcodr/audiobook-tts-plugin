@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BUILTIN_VOICE_PROFILES, Store } from '../src/config.mjs'
 import { TtsService } from '../src/service.mjs'
-import { RefsStore, MAX_REF_BYTES } from '../src/refs-store.mjs'
-import { silentWav, parseWav } from '../src/wav.mjs'
+import { RefsStore, MAX_REF_BYTES, computeRefsDigest } from '../src/refs-store.mjs'
+import { encodeWav, silentWav, parseWav } from '../src/wav.mjs'
 
 const fresh = (p = 'mimo-refs-') => mkdtempSync(join(tmpdir(), p))
 
@@ -326,6 +326,117 @@ test('LocalEngine 通过 refId 解析内置参考音并写入 local-refs.json', 
     const written = JSON.parse(readFileSync(join(dir, 'local-refs.json'), 'utf8'))
     assert.ok(written.narrator.wav.endsWith('narrator-14s.wav'))
     assert.ok(written.narrator.text.includes('想要守护'))
+
+    await svc.stop()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('Issue #11: 参考音支持波形区间裁剪、A/B 原音切换、HTTP 路由、缓存失效与还原清理', async () => {
+  const dir = fresh()
+  try {
+    const st = new Store(dir)
+    st.load({})
+    st.update({
+      auth: { enabled: false },
+      upstream: { provider: 'mimo', keys: ['sk-test-clip-0001'] },
+    })
+    const svc = new TtsService({ store: st, log: () => {} })
+
+    // 上传一段 16s WAV
+    const pcm = Buffer.alloc(24000 * 16 * 2)
+    for (let i = 0; i < 24000 * 16; i++) {
+      pcm.writeInt16LE(Math.round(Math.sin(i / 25) * 4000), i * 2)
+    }
+    const longWav = encodeWav(pcm, 24000, 1, 16)
+    const addRes = await callSvc(svc, {
+      method: 'POST',
+      url: '/api/refs',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: '长样本',
+        filename: 'long-voice.wav',
+        dataBase64: longWav.toString('base64'),
+        text: '测试参考文本。',
+      }),
+    })
+    assert.equal(addRes.status, 201)
+    const id = JSON.parse(addRes.bodyText).item.id
+    const beforeDigest = computeRefsDigest({ narrator: { refId: id } }, svc.refs)
+
+    // 先缓存一次 MiMo sampleDataUrl，验证裁剪后会清理 samples
+    svc.mimo.sampleDataUrl(svc.refs.get(id).wav)
+    assert.equal(svc.mimo.samples.size, 1)
+
+    // 内置样本禁止裁剪
+    const builtinClip = await callSvc(svc, {
+      method: 'POST',
+      url: '/api/refs/builtin%3Anarrator-14s/clip',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ startSec: 1, endSec: 6 }),
+    })
+    assert.equal(builtinClip.status, 403)
+
+    // 越界时长 (<1s) 被拒 400
+    const badClip = await callSvc(svc, {
+      method: 'POST',
+      url: `/api/refs/${encodeURIComponent(id)}/clip`,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ startSec: 2, endSec: 2.3 }),
+    })
+    assert.equal(badClip.status, 400)
+
+    // 执行 2s–10s 裁剪 + RMS 归一
+    const clipRes = await callSvc(svc, {
+      method: 'POST',
+      url: `/api/refs/${encodeURIComponent(id)}/clip`,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ startSec: 2, endSec: 10, normalize: true }),
+    })
+    assert.equal(clipRes.status, 200)
+    const clippedItem = JSON.parse(clipRes.bodyText).item
+    assert.equal(clippedItem.hasClip, true)
+    assert.equal(clippedItem.clipStart, 2)
+    assert.equal(clippedItem.clipEnd, 10)
+    assert.equal(clippedItem.durationSec, 8)
+    assert.equal(svc.mimo.samples.size, 0, '裁剪后应清空 MiMo base64 样本缓存')
+    assert.notEqual(
+      computeRefsDigest({ narrator: { refId: id } }, svc.refs),
+      beforeDigest,
+      '裁剪区间改变后 computeRefsDigest 必须变化',
+    )
+
+    // /audio 默认吐出裁剪后的 8s WAV，?raw=1 仍保留原始 16s WAV
+    const activeAudio = await callSvc(svc, { method: 'GET', url: `/api/refs/${encodeURIComponent(id)}/audio` })
+    assert.equal(activeAudio.status, 200)
+    assert.ok(Math.abs(parseWav(activeAudio.bodyBuffer).durationSec - 8) < 0.05)
+
+    const rawAudio = await callSvc(svc, { method: 'GET', url: `/api/refs/${encodeURIComponent(id)}/audio?raw=1` })
+    assert.equal(rawAudio.status, 200)
+    assert.ok(Math.abs(parseWav(rawAudio.bodyBuffer).durationSec - 16) < 0.05)
+
+    // 恢复原版清除 clip 文件与字段
+    const clipFilePath = clippedItem.wav
+    assert.ok(existsSync(clipFilePath))
+    const revertRes = await callSvc(svc, {
+      method: 'DELETE',
+      url: `/api/refs/${encodeURIComponent(id)}/clip`,
+    })
+    assert.equal(revertRes.status, 200)
+    const revertedItem = JSON.parse(revertRes.bodyText).item
+    assert.equal(revertedItem.hasClip, false)
+    assert.equal(revertedItem.durationSec, 16)
+    assert.equal(existsSync(clipFilePath), false)
+
+    // 重新裁剪后删除条目，原始文件与 clip 文件应同时彻底删除
+    await svc.refs.clip(id, { startSec: 1, endSec: 7 })
+    const curItem = svc.refs.get(id)
+    const origPath = curItem.rawWav
+    const cPath = curItem.wav
+    svc.refs.remove(id)
+    assert.equal(existsSync(origPath), false)
+    assert.equal(existsSync(cPath), false)
 
     await svc.stop()
   } finally {

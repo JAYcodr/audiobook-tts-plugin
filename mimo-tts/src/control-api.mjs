@@ -271,7 +271,7 @@ export function createControlHandler({ service, requireAuth = false }) {
       return true
     }
 
-    if (path.startsWith('/api/refs')) return handleRefRoutes(service, req, res, path)
+    if (path.startsWith('/api/refs')) return handleRefRoutes(service, req, res, path, url)
     if (path === '/api/env/detect' || path === '/api/doctor' || path.startsWith('/api/setup/')) {
       return handleSetupRoutes(service, req, res, path, url)
     }
@@ -514,7 +514,7 @@ async function invalidateIfRefUsed(service, refId) {
   }
 }
 
-async function handleRefRoutes(service, req, res, path) {
+async function handleRefRoutes(service, req, res, path, url) {
   if (path === '/api/refs') {
     if (req.method === 'GET') {
       sendJson(res, 200, { refs: service.refs.list() })
@@ -543,7 +543,8 @@ async function handleRefRoutes(service, req, res, path) {
     }
     try {
       const id = decodeURIComponent(audioMatch[1])
-      const { buffer, mime } = service.refs.readAudio(id)
+      const raw = url?.searchParams?.get('raw') === '1'
+      const { buffer, mime } = service.refs.readAudio(id, { raw })
       res.writeHead(200, {
         'Content-Type': mime,
         'Content-Length': buffer.length,
@@ -554,6 +555,37 @@ async function handleRefRoutes(service, req, res, path) {
     } catch (err) {
       sendRefError(res, err)
     }
+    return true
+  }
+
+  const clipMatch = /^\/api\/refs\/([^/]+)\/clip$/.exec(path)
+  if (clipMatch) {
+    const id = decodeURIComponent(clipMatch[1])
+    if (req.method === 'POST') {
+      try {
+        const body = await readJson(req, 50_000)
+        const item = await service.refs.clip(id, {
+          ...body,
+          ...(service.transcodeOpts || {}),
+        })
+        await invalidateIfRefUsed(service, id)
+        sendJson(res, 200, { item, refs: service.refs.list() })
+      } catch (err) {
+        sendRefError(res, err)
+      }
+      return true
+    }
+    if (req.method === 'DELETE') {
+      try {
+        const item = service.refs.clearClip(id)
+        await invalidateIfRefUsed(service, id)
+        sendJson(res, 200, { item, refs: service.refs.list() })
+      } catch (err) {
+        sendRefError(res, err)
+      }
+      return true
+    }
+    sendJson(res, 405, { error: 'method not allowed' })
     return true
   }
 

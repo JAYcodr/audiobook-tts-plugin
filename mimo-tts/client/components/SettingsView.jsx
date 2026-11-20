@@ -741,7 +741,10 @@ export function SettingsView({
                   {knob('limits.rpm', '限速', 10, 300, 10, '/min', '每分钟请求上限')}
                 </div>
                 <div className="ctrl-row">
-                  <div className="cl"><b>流式返回</b><i>STREAM · 仅 WAV 有效</i></div>
+                  <div className="cl">
+                    <b>流式返回</b>
+                    <i>STREAM · 仅 WAV；部分 Android 进度条可能失真（建议逐 URL ?stream=1 实测后再全局开启）</i>
+                  </div>
                   {toggle('synth.stream', '流式返回')}
                 </div>
                 <div className="ctrl-row">

@@ -208,6 +208,19 @@ test('Issue #13: 流式首段失败写入 0.4s 静音 PCM 兜底且不污染缓�
     assert.equal(parsed.pcm.length, 19200 + 4800)
     // 失败的第 0 段不得写脏缓存；只有成功的第 1 段入缓存
     assert.equal(svc.cache.stats().entries, 1)
+
+    // Issue #9: ?stream=0 按请求显式退回定长 WAV，不发送 0x7fffffff 流式头
+    const resNonStream = makeRes()
+    await svc.handle(makeReq({
+      method: 'POST',
+      url: '/listening?stream=0',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: '定长回归校验。' }),
+    }), resNonStream)
+    assert.equal(resNonStream.status, 200)
+    assert.equal(Number(resNonStream.headers['Content-Length']), resNonStream.bodyBuffer.length)
+    assert.notEqual(resNonStream.bodyBuffer.readUInt32LE(40), 0x7fffffff)
+    assert.equal(resNonStream.bodyBuffer.readUInt32LE(40), 4800)
   } finally {
     globalThis.fetch = prevFetch
     await svc?.stop().catch(() => {})

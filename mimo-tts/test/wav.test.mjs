@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { encodeWav, parseWav, concatWavs, streamingWavHeader, silentWav, normalizeWav } from '../src/wav.mjs'
+import { encodeWav, parseWav, concatWavs, streamingWavHeader, silentWav, normalizeWav, sliceWav } from '../src/wav.mjs'
 
 const pcmOf = (samples) => {
   const b = Buffer.alloc(samples.length * 2)
@@ -59,8 +59,10 @@ test('立体声降混成单声道', () => {
 
 test('流式头标记长度未知（只在显式要求时使用）', () => {
   const h = streamingWavHeader(24000)
+  assert.equal(h.readUInt32LE(4), 36 + 0x7fffffff)
   assert.equal(h.readUInt32LE(40), 0x7fffffff)
   assert.equal(h.toString('ascii', 0, 4), 'RIFF')
+  assert.equal(h.toString('ascii', 8, 12), 'WAVE')
 })
 
 test('静音占位是合法 WAV', () => {
@@ -84,4 +86,21 @@ test('RMS 归一后音量一致，且不削波', () => {
   assert.ok(Math.abs(Math.sqrt(sum / (out.pcm.length / 2)) - 0.126) < 0.005)
   assert.ok(peak <= 0.9501)
   assert.equal(out.sampleRate, 24000)
+})
+
+test('sliceWav 按秒裁剪多声道 WAV 并支持可选 RMS 归一', () => {
+  const frames = 24000 * 4 // 4s stereo
+  const stereo = Buffer.alloc(frames * 4)
+  for (let i = 0; i < frames; i++) {
+    const v = Math.round(Math.sin(i / 15) * 3000)
+    stereo.writeInt16LE(v, i * 4)
+    stereo.writeInt16LE(v, i * 4 + 2)
+  }
+  const src = encodeWav(stereo, 24000, 2, 16)
+  const clipped = sliceWav(src, { startSec: 1.0, endSec: 3.0, normalize: true })
+  const parsed = parseWav(clipped.wav)
+  assert.equal(parsed.channels, 1)
+  assert.equal(parsed.sampleRate, 24000)
+  assert.ok(Math.abs(parsed.durationSec - 2.0) < 0.02)
+  assert.throws(() => sliceWav(src, { startSec: 2, endSec: 2 }), /大于起始时间/)
 })

@@ -98,7 +98,7 @@ export function streamingWavHeader(sampleRate = 24000, channels = 1, bitsPerSamp
 }
 
 /** 多声道降混为单声道（int16） */
-function downmix(pcm, channels) {
+export function downmix(pcm, channels) {
   if (channels === 1) return pcm
   const frames = Math.floor(pcm.length / (2 * channels))
   const out = Buffer.alloc(frames * 2)
@@ -208,6 +208,37 @@ export function normalizeWav(buf, { targetRms = 0.126, peakCap = 0.95 } = {}) {
     out.writeInt16LE(v, i * 2)
   }
   return encodeWav(out, w.sampleRate, 1, 16)
+}
+
+/** 按起止秒数无损裁剪 WAV 并可选做 RMS 响度归一（输出 16-bit 单声道标准 WAV）。 */
+export function sliceWav(buf, { startSec = 0, endSec, normalize = false, targetRms = 0.126 } = {}) {
+  const w = parseWav(buf)
+  let pcm = w.bitsPerSample === 16 ? w.pcm : convertTo16(w)
+  pcm = downmix(pcm, w.channels)
+  const totalFrames = Math.floor(pcm.length / 2)
+  const totalSec = totalFrames / w.sampleRate
+  const start = Math.max(0, Number(startSec) || 0)
+  const endRaw = endSec === undefined || endSec === null ? totalSec : Number(endSec)
+  if (!Number.isFinite(start) || !Number.isFinite(endRaw)) {
+    throw new Error('裁剪起止时间必须为合法数字')
+  }
+  const end = Math.min(totalSec, endRaw)
+  if (end <= start) {
+    throw new Error('裁剪结束时间必须大于起始时间')
+  }
+  const startFrame = Math.min(totalFrames, Math.max(0, Math.floor(start * w.sampleRate)))
+  const endFrame = Math.min(totalFrames, Math.max(startFrame + 1, Math.ceil(end * w.sampleRate)))
+  const subPcm = Buffer.from(pcm.subarray(startFrame * 2, endFrame * 2))
+  let out = encodeWav(subPcm, w.sampleRate, 1, 16)
+  if (normalize) out = normalizeWav(out, { targetRms })
+  return {
+    wav: out,
+    sampleRate: w.sampleRate,
+    channels: 1,
+    durationSec: Number(((endFrame - startFrame) / w.sampleRate).toFixed(2)),
+    startSec: Number((startFrame / w.sampleRate).toFixed(2)),
+    endSec: Number((endFrame / w.sampleRate).toFixed(2)),
+  }
 }
 
 /** 静音 WAV（合成失败时的占位） */

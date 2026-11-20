@@ -132,6 +132,12 @@
 .mtt .ref-warns{display:flex;flex-wrap:wrap;gap:4px}
 .mtt .ref-edit{display:flex;flex-direction:column;gap:5px}
 .mtt .ref-audio{width:100%;height:30px}
+.mtt .ref-clipper{border:1px solid var(--line-2);background:var(--panel);padding:8px 10px;display:flex;flex-direction:column;gap:7px;margin-top:4px}
+.mtt .ref-clip-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.mtt .ref-wave-well{position:relative;background:var(--well);border:1px solid var(--line-2);padding:4px 6px;min-height:72px;box-shadow:inset 0 1px 2px rgba(0,0,0,.1)}
+.mtt .ref-wave-msg{font:11px/1.4 var(--mono);color:var(--ink-3);padding:18px 8px;text-align:center}
+.mtt .ref-clip-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.mtt .ref-sec-inp{width:58px;padding:2px 5px;font-size:11px;font-family:var(--mono)}
 .mtt .ref-upload{border:1px dashed var(--line-2);background:var(--panel);padding:8px 10px;display:flex;flex-direction:column;gap:6px}
 .mtt .ref-up-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 

@@ -3,13 +3,14 @@
  * 自动纳管仓库内置 `refs/` 样本与用户上传的自定义参考音（存放在 dataDir/refs/），
  * 供本地 Qwen3-TTS、混合启动与 MiMo 声音克隆三种路径共用。
  */
+import { spawn } from 'node:child_process'
 import {
   existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync,
 } from 'node:fs'
 import { basename, extname, join, resolve, sep } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
-import { expandHomePath, resolvePackageRoot, resolveRepoRoot } from './paths.mjs'
-import { parseWav } from './wav.mjs'
+import { expandHomePath, findBinary, resolvePackageRoot, resolveRepoRoot } from './paths.mjs'
+import { normalizeWav, parseWav, sliceWav } from './wav.mjs'
 
 export const MAX_REF_BYTES = 10 * 1024 * 1024 // 10 MB
 const ALLOWED_EXTS = new Set(['.wav', '.mp3', '.m4a'])
@@ -73,6 +74,63 @@ function inspectAudio(buf, ext) {
     if (durationSec > 20) warnings.push(`时长 ${durationSec}s（建议 5–15s，过长会增加冷启动与推理耗时）`)
   }
   return { durationSec, sampleRate, channels, warnings }
+}
+
+function decodeAudioRangeWithFfmpeg({
+  ffmpegPath,
+  inputPath,
+  startSec,
+  endSec,
+  spawnImpl = spawn,
+  timeoutMs = 30_000,
+}) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    let settled = false
+    const finish = (err, buf) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      if (err) rejectPromise(err)
+      else resolvePromise(buf)
+    }
+
+    const args = [
+      '-hide_banner',
+      '-loglevel', 'error',
+      '-ss', String(startSec),
+      '-to', String(endSec),
+      '-i', inputPath,
+      '-ac', '1',
+      '-ar', '24000',
+      '-sample_fmt', 's16',
+      '-f', 'wav',
+      'pipe:1',
+    ]
+    let child
+    try {
+      child = spawnImpl(ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    } catch (err) {
+      return finish(err)
+    }
+
+    const outChunks = []
+    const errChunks = []
+    const timer = setTimeout(() => {
+      try { child.kill?.('SIGKILL') } catch { /* ignore */ }
+      finish(new Error('ffmpeg 裁剪超时'))
+    }, timeoutMs)
+    timer.unref?.()
+
+    child.stdout?.on('data', (c) => outChunks.push(Buffer.from(c)))
+    child.stderr?.on('data', (c) => errChunks.push(Buffer.from(c)))
+    child.on('error', (err) => finish(err))
+    child.on('close', (code) => {
+      const out = Buffer.concat(outChunks)
+      if (code === 0 && out.length >= 44) return finish(null, out)
+      const detail = Buffer.concat(errChunks).toString('utf8').trim() || `exit code=${code}`
+      finish(new Error(`ffmpeg 裁剪失败：${detail}`))
+    })
+  })
 }
 
 function findBuiltinRefsDir() {
@@ -182,11 +240,15 @@ export class RefsStore {
   list() {
     this.#ensureLoaded()
     const customs = this.custom.map((it) => {
-      const wav = this.#safeFilePath(it.filename)
+      const activeName = it.clipFilename || it.filename
+      const wav = this.#safeFilePath(activeName)
+      const rawWav = this.#safeFilePath(it.filename)
       const exists = Boolean(wav && existsSync(wav))
       return {
         ...it,
         wav: exists ? wav : '',
+        rawWav: (rawWav && existsSync(rawWav)) ? rawWav : '',
+        hasClip: Boolean(it.clipFilename && exists),
         builtin: false,
         exists,
       }
@@ -296,6 +358,151 @@ export class RefsStore {
     return this.get(id)
   }
 
+  /**
+   * 对自定义参考音进行非破坏性区间裁剪（生成独立 *-clip.wav，保留原始文件可供重选或恢复）。
+   */
+  async clip(id, {
+    startSec = 0,
+    endSec,
+    normalize = false,
+    targetRms = 0.126,
+    findBinaryImpl,
+    spawnImpl,
+    probe,
+  } = {}) {
+    this.#ensureLoaded()
+    if (String(id || '').startsWith('builtin:')) {
+      throw new RefError('内置参考音为只读样本，不可裁剪', 403, 'builtin_readonly')
+    }
+    const idx = this.custom.findIndex((it) => it.id === id)
+    if (idx < 0) throw new RefError(`未找到参考音：${id}`, 404, 'not_found')
+
+    const cur = this.custom[idx]
+    const origPath = this.#safeFilePath(cur.filename)
+    if (!origPath || !existsSync(origPath)) {
+      throw new RefError(`原始参考音文件丢失：${id}`, 404, 'not_found')
+    }
+
+    const start = Number(startSec)
+    const end = Number(endSec)
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+      throw new RefError('裁剪起止秒数不合法', 400, 'bad_clip_range')
+    }
+    const span = end - start
+    if (span < 1 || span > 30) {
+      throw new RefError('裁剪时长需在 1–30 秒内（推荐 5–15 秒）', 400, 'bad_clip_duration')
+    }
+
+    let outWav
+    let clippedMeta
+    if (cur.ext === '.wav') {
+      try {
+        const sliced = sliceWav(readFileSync(origPath), {
+          startSec: start,
+          endSec: end,
+          normalize: Boolean(normalize),
+          targetRms,
+        })
+        outWav = sliced.wav
+        clippedMeta = sliced
+      } catch (err) {
+        throw new RefError(String(err?.message || err), 400, 'clip_failed')
+      }
+    } else {
+      const ffmpegPath = (typeof findBinaryImpl === 'function' ? findBinaryImpl : findBinary)('ffmpeg', probe)
+      if (!ffmpegPath) {
+        throw new RefError('裁剪 MP3 / M4A 参考音需要本机安装 ffmpeg（或改传 WAV 文件）', 501, 'ffmpeg_missing')
+      }
+      try {
+        let decoded = await decodeAudioRangeWithFfmpeg({
+          ffmpegPath,
+          inputPath: origPath,
+          startSec: start,
+          endSec: end,
+          spawnImpl,
+        })
+        if (normalize) decoded = normalizeWav(decoded, { targetRms })
+        const p = parseWav(decoded)
+        outWav = decoded
+        clippedMeta = {
+          sampleRate: p.sampleRate,
+          channels: p.channels,
+          durationSec: Number(p.durationSec.toFixed(2)),
+        }
+      } catch (err) {
+        throw new RefError(String(err?.message || err), 400, 'clip_failed')
+      }
+    }
+
+    const clipFilename = `${cur.id.replace(':', '-')}-clip.wav`
+    const clipPath = this.#safeFilePath(clipFilename)
+    if (!clipPath) throw new RefError('非法裁剪路径', 400, 'unsafe_path')
+    mkdirSync(this.refsDir, { recursive: true })
+    const tmp = `${clipPath}.tmp`
+    writeFileSync(tmp, outWav)
+    renameSync(tmp, clipPath)
+
+    if (cur.rawDurationSec === undefined) cur.rawDurationSec = cur.durationSec
+    const meta = inspectAudio(outWav, '.wav')
+    if (meta.durationSec > 15 && meta.durationSec <= 20) {
+      meta.warnings.push(`时长 ${meta.durationSec}s（推荐 5–15s 黄金克隆区间）`)
+    }
+    if (!cur.text) meta.warnings.push('未填写逐字参考文本（本地 Qwen3-TTS 必须填写，MiMo 克隆可不填）')
+
+    cur.clipFilename = clipFilename
+    cur.clipStart = Number(start.toFixed(2))
+    cur.clipEnd = Number(end.toFixed(2))
+    cur.clipDuration = clippedMeta.durationSec
+    cur.clipNormalized = Boolean(normalize)
+    cur.durationSec = clippedMeta.durationSec
+    cur.sampleRate = meta.sampleRate
+    cur.channels = meta.channels
+    cur.warnings = meta.warnings
+    cur.updatedAt = Date.now()
+    this.#save()
+    return this.get(id)
+  }
+
+  /** 删除裁剪产物并恢复为原始上传参考音。 */
+  clearClip(id) {
+    this.#ensureLoaded()
+    if (String(id || '').startsWith('builtin:')) {
+      throw new RefError('内置参考音为只读样本', 403, 'builtin_readonly')
+    }
+    const idx = this.custom.findIndex((it) => it.id === id)
+    if (idx < 0) throw new RefError(`未找到参考音：${id}`, 404, 'not_found')
+
+    const cur = this.custom[idx]
+    if (cur.clipFilename) {
+      const oldClip = this.#safeFilePath(cur.clipFilename)
+      if (oldClip && existsSync(oldClip)) {
+        try { unlinkSync(oldClip) } catch { /* ignore */ }
+      }
+    }
+    delete cur.clipFilename
+    delete cur.clipStart
+    delete cur.clipEnd
+    delete cur.clipDuration
+    delete cur.clipNormalized
+
+    const origPath = this.#safeFilePath(cur.filename)
+    let warnings = []
+    if (origPath && existsSync(origPath) && cur.ext === '.wav') {
+      const meta = inspectAudio(readFileSync(origPath), '.wav')
+      cur.durationSec = meta.durationSec
+      cur.sampleRate = meta.sampleRate
+      cur.channels = meta.channels
+      warnings = meta.warnings
+    } else if (cur.rawDurationSec !== undefined) {
+      cur.durationSec = cur.rawDurationSec
+    }
+    if (!cur.text) warnings.push('未填写逐字参考文本（本地 Qwen3-TTS 必须填写，MiMo 克隆可不填）')
+    cur.warnings = warnings
+    cur.updatedAt = Date.now()
+    this.#save()
+    return this.get(id)
+  }
+
   remove(id) {
     this.#ensureLoaded()
     if (String(id || '').startsWith('builtin:')) {
@@ -305,24 +512,29 @@ export class RefsStore {
     if (idx < 0) throw new RefError(`未找到参考音：${id}`, 404, 'not_found')
 
     const [removed] = this.custom.splice(idx, 1)
-    const target = this.#safeFilePath(removed.filename)
-    if (target && existsSync(target)) {
-      try { unlinkSync(target) } catch { /* ignore */ }
+    for (const fname of [removed.filename, removed.clipFilename]) {
+      if (!fname) continue
+      const target = this.#safeFilePath(fname)
+      if (target && existsSync(target)) {
+        try { unlinkSync(target) } catch { /* ignore */ }
+      }
     }
     this.#save()
     return { ok: true, id }
   }
 
-  readAudio(id) {
+  readAudio(id, { raw = false } = {}) {
     const item = this.get(id)
-    if (!item || !item.wav || !existsSync(item.wav)) {
+    const targetPath = raw ? (item?.rawWav || item?.wav) : item?.wav
+    if (!item || !targetPath || !existsSync(targetPath)) {
       throw new RefError(`参考音文件不存在：${id}`, 404, 'not_found')
     }
+    const ext = raw ? (item.ext || extname(targetPath)) : extname(targetPath)
     return {
       item,
-      buffer: readFileSync(item.wav),
-      mime: mimeForExt(item.ext || extname(item.wav)),
-      filename: item.filename,
+      buffer: readFileSync(targetPath),
+      mime: mimeForExt(ext),
+      filename: raw ? item.filename : (item.clipFilename || item.filename),
     }
   }
 
@@ -384,7 +596,15 @@ export function computeRefsDigest(refsCfg, refsStore = null) {
         stTag = `${Math.trunc(st.mtimeMs)}:${st.size}`
       } catch { stTag = '' }
     }
-    return [res.id || '', res.wav || '', stTag, res.text || '']
+    return [
+      res.id || '',
+      res.wav || '',
+      stTag,
+      res.text || '',
+      res.clipStart || 0,
+      res.clipEnd || 0,
+      res.clipNormalized ? 1 : 0,
+    ]
   })
   return createHash('sha1').update(JSON.stringify(parts)).digest('hex').slice(0, 8)
 }
