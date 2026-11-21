@@ -30,6 +30,102 @@ from io import BytesIO
 
 import numpy as np
 
+try:
+    import mlx.core as mx
+except Exception:  # 非 Apple Silicon / 没装 mlx
+    mx = None
+
+# MLX 把释放的 GPU buffer 留在自己的 free cache 里，上限默认 = memory_limit
+# （macOS 26 / M4 16G 实测 15.2GiB），进程 footprint 因此能涨到"推荐工作集"
+# 11.84GB。这些是 Metal/IOKit 内存，系统按 wired 记账——压缩不了、换不出去，
+# 听书半小时就能把整机推到 swap。64MB 封顶 + 每段主动归还后，footprint 稳定
+# 在模型权重本身（约 2.3GB）+ 约 1.2GB 驱动堆，不再随请求数上涨。
+MLX_CACHE_LIMIT_MB = int(os.environ.get("TTS_MLX_CACHE_LIMIT_MB", "64") or 0)
+MLX_TRIM_THRESHOLD = 256 * 1024 * 1024
+
+_RUSAGE_FN = None  # None=未初始化 / False=不可用 / callable=可用
+
+
+def _memory_footprint():
+    """当前 phys_footprint 与生命周期峰值（字节）。
+
+    活动监视器「内存」那一列读的就是 phys_footprint，它包含 IOKit/Metal 的
+    GPU 内存；resource.getrusage().ru_maxrss 不含这部分 —— 实测同一个进程
+    footprint 3.5GB 时 ru_maxrss 只有 2.3GB，旧引擎 2.3GB 时报的是 1.0GB。
+    读不到返回 (None, None)，绝不让 /health 挂掉。
+    """
+    global _RUSAGE_FN
+    if _RUSAGE_FN is False:
+        return None, None
+    if _RUSAGE_FN is None:
+        try:
+            import ctypes
+
+            class _RusageInfoV4(ctypes.Structure):
+                _fields_ = [
+                    ("ri_uuid", ctypes.c_uint8 * 16),
+                    ("ri_user_time", ctypes.c_uint64),
+                    ("ri_system_time", ctypes.c_uint64),
+                    ("ri_pkg_idle_wkups", ctypes.c_uint64),
+                    ("ri_interrupt_wkups", ctypes.c_uint64),
+                    ("ri_pageins", ctypes.c_uint64),
+                    ("ri_wired_size", ctypes.c_uint64),
+                    ("ri_resident_size", ctypes.c_uint64),
+                    ("ri_phys_footprint", ctypes.c_uint64),
+                    ("ri_proc_start_abstime", ctypes.c_uint64),
+                    ("ri_proc_exit_abstime", ctypes.c_uint64),
+                    ("ri_child_user_time", ctypes.c_uint64),
+                    ("ri_child_system_time", ctypes.c_uint64),
+                    ("ri_child_pkg_idle_wkups", ctypes.c_uint64),
+                    ("ri_child_interrupt_wkups", ctypes.c_uint64),
+                    ("ri_child_pageins", ctypes.c_uint64),
+                    ("ri_child_elapsed_abstime", ctypes.c_uint64),
+                    ("ri_diskio_bytesread", ctypes.c_uint64),
+                    ("ri_diskio_byteswritten", ctypes.c_uint64),
+                    ("ri_cpu_time_qos_default", ctypes.c_uint64),
+                    ("ri_cpu_time_qos_maintenance", ctypes.c_uint64),
+                    ("ri_cpu_time_qos_background", ctypes.c_uint64),
+                    ("ri_cpu_time_qos_utility", ctypes.c_uint64),
+                    ("ri_cpu_time_qos_legacy", ctypes.c_uint64),
+                    ("ri_cpu_time_qos_user_initiated", ctypes.c_uint64),
+                    ("ri_cpu_time_qos_user_interactive", ctypes.c_uint64),
+                    ("ri_billed_system_time", ctypes.c_uint64),
+                    ("ri_serviced_system_time", ctypes.c_uint64),
+                    ("ri_logical_writes", ctypes.c_uint64),
+                    ("ri_lifetime_max_phys_footprint", ctypes.c_uint64),
+                    ("ri_instructions", ctypes.c_uint64),
+                    ("ri_cycles", ctypes.c_uint64),
+                    ("ri_billed_energy", ctypes.c_uint64),
+                    ("ri_serviced_energy", ctypes.c_uint64),
+                    ("ri_interval_max_phys_footprint", ctypes.c_uint64),
+                    ("ri_runnable_time", ctypes.c_uint64),
+                    ("_reserved", ctypes.c_uint64 * 8),
+                ]
+
+            _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+            _libproc.proc_pid_rusage.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
+            _libproc.proc_pid_rusage.restype = ctypes.c_int
+
+            def _read(pid):
+                info = _RusageInfoV4()
+                if _libproc.proc_pid_rusage(int(pid), 4, ctypes.byref(info)) != 0:
+                    return None, None
+                return int(info.ri_phys_footprint), int(info.ri_lifetime_max_phys_footprint)
+
+            _RUSAGE_FN = _read
+        except Exception:
+            _RUSAGE_FN = False
+            return None, None
+    try:
+        return _RUSAGE_FN(os.getpid())
+    except Exception:
+        _RUSAGE_FN = False
+        return None, None
+
+
+def _mb(value):
+    return round(value / 1024 / 1024, 1) if isinstance(value, int) else None
+
 PUNCT = re.compile(r"[\s，。！？、；：\"“”‘’…—（）()《》【】,.!?;:]")
 MIN_VOCODER_BYTES = 600_000_000
 MIN_MODEL_BYTES = 500_000_000
@@ -119,6 +215,10 @@ class Engine:
         self.max_text = args.max_text
 
         validate_model_dir(args.model)
+        if mx is not None:
+            prev_limit = mx.set_cache_limit(max(0, MLX_CACHE_LIMIT_MB) * 1024 * 1024)
+            self.log({"event": "mlx_limits", "cache_limit_mb": max(0, MLX_CACHE_LIMIT_MB),
+                      "prev_cache_limit_bytes": prev_limit})
         t0 = time.time()
         self.model = load_model(args.model)
         self.load_s = time.time() - t0
@@ -149,6 +249,12 @@ class Engine:
     def status(self):
         with self.active_lock:
             active = self.active
+        footprint, footprint_peak = _memory_footprint()
+        try:
+            mlx_cache = mx.get_cache_memory() if mx is not None else None
+            mlx_peak = mx.get_peak_memory() if mx is not None else None
+        except Exception:
+            mlx_cache = mlx_peak = None
         return {
             "status": "ok",
             "instanceId": self.args.instance_id,
@@ -163,7 +269,15 @@ class Engine:
             "last_request": round(self.last_request, 3),
             "idle_timeout": self.args.idle_timeout,
             "refs": sorted(self.refs.keys()),
-            "maxrss_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024 / 1024, 1),
+            # maxrss_mb 是历史字段名，现在报的是活动监视器口径的 footprint
+            # （ru_maxrss 不含 Metal/IOKit，会少报一半）；原值放 rusage_maxrss_mb。
+            "maxrss_mb": _mb(footprint) if footprint is not None else round(
+                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024 / 1024, 1),
+            "rusage_maxrss_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024 / 1024, 1),
+            "footprint_mb": _mb(footprint),
+            "footprint_peak_mb": _mb(footprint_peak),
+            "mlx_cache_mb": _mb(mlx_cache),
+            "mlx_peak_mb": _mb(mlx_peak),
         }
 
     def synth(self, text, role):
@@ -194,6 +308,8 @@ class Engine:
                     if a.size:
                         chunks.append(a)
                 gen_ms = (time.time() - t0) * 1000
+                if mx is not None and mx.get_cache_memory() > MLX_TRIM_THRESHOLD:
+                    mx.clear_cache()
         finally:
             with self.active_lock:
                 self.active -= 1
