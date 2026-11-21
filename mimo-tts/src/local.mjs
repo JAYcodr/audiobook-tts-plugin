@@ -322,7 +322,7 @@ export class LocalEngine {
           if (this.proc !== proc) return
           this.state = 'ready'
           this.port = health.port || port
-          this.rssMb = health.maxrss_mb ?? null
+          this.rssMb = health.footprint_mb ?? health.maxrss_mb ?? null
           this.loadS = health.load_s ?? null
           this.lastHealthAt = Date.now()
           this.lastUsed = Date.now()
@@ -604,7 +604,7 @@ export class LocalEngine {
         if (res.ok) {
           const h = await res.json()
           if (h.instanceId === this.instanceId) {
-            this.rssMb = h.maxrss_mb ?? this.rssMb
+            this.rssMb = h.footprint_mb ?? h.maxrss_mb ?? this.rssMb
             this.lastHealthAt = Date.now()
           }
         }
