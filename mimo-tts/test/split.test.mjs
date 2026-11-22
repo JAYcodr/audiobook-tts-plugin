@@ -14,9 +14,18 @@ test('引号内切到对话音色', () => {
   assert.deepEqual(segs.map((s) => s.role), ['narrator', 'dialogue'])
 })
 
-test('全角引号与角括号都算对话', () => {
-  assert.equal(splitText('「走吧。」').at(-1).role, 'dialogue')
-  assert.equal(splitText('『别动。』').at(-1).role, 'dialogue')
+test('角括号是道具/术语标记，不切对话角色', () => {
+  // 小说里「」『』标的是道具名、招式名、系统提示，不是对白
+  const item = splitText('他拿起「青锋剑」，转身走了出去。')
+  assert.deepEqual(item.map((s) => s.role), ['narrator'])
+  assert.equal(item[0].text, '他拿起「青锋剑」，转身走了出去。')
+
+  const nested = splitText('他掏出「回气丹」，又看了一眼【任务提示】：前往「落霞谷」。')
+  assert.deepEqual(nested.map((s) => s.role), ['narrator'])
+
+  // 对话里嵌「」不影响外层对话判定
+  const said = splitText('他说：“这是「青锋剑」。”')
+  assert.deepEqual(said.map((s) => s.role), ['narrator', 'dialogue'])
 })
 
 test('ASCII 直引号按对归一化并正确闭合，不会把后续旁白误判为对话', () => {

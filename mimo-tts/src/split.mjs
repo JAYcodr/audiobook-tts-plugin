@@ -18,10 +18,16 @@ const QUOTE_CHARS = new Set(['\u201c', '\u201d', '\u2018', '\u2019', '\u300c', '
 const SENTENCE_END_RE = /[。！？!；;]/
 const SPLIT_RE = /([。！？!；;]+)/
 
+/**
+ * 只有中文弯引号 “” 算对话引号。
+ *
+ * 角括号「」『』不算：小说里它们标的是道具名、招式名、系统提示、作品名
+ * （「青锋剑」「天地无极功」），不是对白。早先把它们当对话引号，会把道具名
+ * 单独切出来、交给对话音色去念，并且多切一段（每段一次推理开销）。
+ * 需要「」当对白的老台版排版，改这一个 Map 即可。
+ */
 const QUOTE_PAIRS = new Map([
   ['\u201c', '\u201d'],
-  ['\u300c', '\u300d'],
-  ['\u300e', '\u300f'],
 ])
 const CLOSE_QUOTES = new Set(QUOTE_PAIRS.values())
 

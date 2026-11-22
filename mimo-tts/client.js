@@ -2338,9 +2338,7 @@ var import_react7 = __toESM(require("react"), 1);
 
 // src/split.mjs
 var QUOTE_PAIRS = /* @__PURE__ */ new Map([
-  ["\u201C", "\u201D"],
-  ["\u300C", "\u300D"],
-  ["\u300E", "\u300F"]
+  ["\u201C", "\u201D"]
 ]);
 var CLOSE_QUOTES = new Set(QUOTE_PAIRS.values());
 

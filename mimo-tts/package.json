@@ -1,6 +1,6 @@
 {
   "name": "audiobook-tts-plugin",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "type": "module",
   "description": "听书值守（Audiobook TTS）：给 Legado（阅读）用的多引擎 TTS 代理 + 值守控制台（支持本地 Qwen3-TTS / OpenAI 兼容 / MiMo 云端 / 混合启动）。",
   "keywords": [

@@ -419,7 +419,12 @@ def idle_watchdog(engine, timeout, parent_pid):
         # 父进程（Node）被强杀时，sidecar 会被 init 收养；这时必须自己退出，
         # 否则 2.3GB 的模型会一直占着。idle=0（常驻）也要守这一条。
         if parent_pid and os.getppid() != parent_pid:
-            engine.log({"event": "orphan_exit", "parent_pid": parent_pid, "ppid": os.getppid()})
+            # 记日志失败（磁盘满 / 路径被卸载）不能阻止退出：这里若抛异常，
+            # 整个 watchdog 线程会静默死掉，2.3GB 的模型就永远占着不走了。
+            try:
+                engine.log({"event": "orphan_exit", "parent_pid": parent_pid, "ppid": os.getppid()})
+            except Exception:
+                pass
             print("[sidecar] parent gone, exit", flush=True)
             os._exit(0)
         with engine.active_lock:
@@ -428,7 +433,10 @@ def idle_watchdog(engine, timeout, parent_pid):
         if current_timeout <= 0:
             continue
         if active == 0 and time.time() - engine.last_request > current_timeout:
-            engine.log({"event": "idle_exit", "idle_s": round(time.time() - engine.last_request, 1)})
+            try:
+                engine.log({"event": "idle_exit", "idle_s": round(time.time() - engine.last_request, 1)})
+            except Exception:
+                pass
             print("[sidecar] idle timeout, exit", flush=True)
             os._exit(0)
 
