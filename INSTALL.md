@@ -2,7 +2,19 @@
 
 照着顺序做。每一步后面都有**验证**，通过了再下一步——不要一口气全做完再回头找问题。
 
-预计时间：本地引擎 20–40 分钟（主要看模型下载）；云端作为辅助路线 5–10 分钟，可随时补上。
+## 先花 30 秒，确认这条路适合你
+
+| 你的情况 | 走哪几节 |
+|---|---|
+| **iPhone / iPad** | Legado 只有安卓版。苹果手机请直接看第 6.5 节接进 Readest；如果你只是想在手机上听书、不想折腾，**这套东西现在不适合你**，系统自带的朗读更省事。 |
+| 安卓，只想尽快能听 | 0 → 2.2 → 3 → 4 → 5 → 6（跳过 1、7、8、9、11） |
+| 安卓 / Mac，想要本地免费高质量 | 上面这些 + 7 |
+| 只是升级已有安装 | 2.2 的 `update` → 3 → 第 10 节的「升级」 |
+| 装好后还想给家人用、或者出门听 | 先把上面跑通，再回来看 8、9 |
+
+预计时间：云端路线 5–10 分钟；本地引擎 20–40 分钟（主要看模型下载）。两条可随时补、可同时开。
+
+**装完你会得到**：DSH 左栏多一个「听书值守」入口（四个页签：时间线 / 渲染设置 / 工程史 / 交付）、手机里多一个朗读引擎、一个局域网地址。系统其它东西不动。
 
 > **定位**：本地 Qwen3-TTS 为主引擎，MiMo 云端为辅。有 Apple Silicon 就直接走本地；
 > 没有的话云端一样能跑完整流程，两条路可以在 `hybrid` 模式下同时开。
@@ -18,7 +30,7 @@
 | 平台 | 云端：macOS / Windows / Linux 都行 | — |
 | 本地引擎 | **只有 macOS + Apple Silicon（M 系列）** | `uname -sm` → `Darwin arm64` |
 | 手机 | 和电脑在同一个局域网 | — |
-| 阅读 App | [Legado](https://github.com/gedoor/legado)（安卓） | — |
+| 阅读 App | [Legado](https://github.com/gedoor/legado)（安卓）；iOS 见第 6.5 节 Readest | — |
 
 > 本包不含任何密钥，也不含模型权重。下面会让你自己准备。
 >
@@ -66,7 +78,10 @@ ls ~/dsh-plugins/audiobook-tts-plugin/refs/
 ### 2.1 首选：让 AI 装（最省事）
 
 把 [AI-SETUP-PROMPT.md](AI-SETUP-PROMPT.md) 里的整段内容复制，发给 DSH 里的 AI。
-它会用 `plugin_manager` / `dsh plugin` 安装（npm 或本地包）、重启、验证，并且只问你两件事：装哪个引擎、Key 是多少。
+它会用 `plugin_manager` / `dsh plugin` 安装（npm 或本地包）并验证到「重启之前」，并且只问你两件事：装哪个引擎、Key 是多少。
+
+> **最后一步重启它做不了，得你来**：见第 3 节，完全退出 DSH（托盘图标也要退）。
+> AI 装完说「请重启」不是它偷懒——宿主不重启就不会加载新的模块。
 
 ### 2.2 从 npm 安装（推荐给普通用户）
 
@@ -246,9 +261,13 @@ curl -X POST 'http://192.168.1.5:8291/listening?token=xxxx' \
   -H 'Content-Type: application/x-www-form-urlencoded' \
   --data-urlencode 'text=山道上起了雾，他把灯举高了一点。' \
   --data-urlencode 'speed=1' -o /tmp/test.wav
-file /tmp/test.wav     # RIFF ... WAVE audio
-open /tmp/test.wav     # macOS 直接播
+node -e "const b=require('fs').readFileSync('/tmp/test.wav');console.log(b.subarray(0,4).toString(), b.length, 'bytes')"
+# 应该打印：RIFF <字节数> bytes
+open /tmp/test.wav     # 仅 macOS 直接播
 ```
+
+> Windows 上没有 `file` 命令，所以这里用 DSH 自带的 node 看文件头（路径见第 2 节）；
+> 同时把 `/tmp/` 换成 `%TEMP%\`。
 
 第一次跑会真的调上游、消耗额度。**几秒内应该出声**。
 
@@ -296,16 +315,22 @@ http://192.168.1.5:8291/legado.json?token=EXAMPLETOKEN123
 ### 6.4 验证
 
 ```bash
-TOKEN=$(python3 -c "import json,os;p=os.path.expanduser('~/.dsh/plugin-data/audiobook-tts-plugin/config.json');p=p if os.path.exists(p) else os.path.expanduser('~/.dsh/plugin-data/mimo-tts/config.json');print(json.load(open(p))['auth']['token'])")
+# 取令牌（跨平台，用 DSH 自带的 node；不用 python3）
+TOKEN=$(node -e "const fs=require('fs'),os=require('os'),p=require('path');const n=f=>p.join(os.homedir(),'.dsh/plugin-data',f,'config.json');const f=[n('audiobook-tts-plugin'),n('mimo-tts')].find(fs.existsSync);process.stdout.write(JSON.parse(fs.readFileSync(f,'utf8')).auth.token)")
+
 curl -s -o /tmp/t.wav -w '%{http_code} %{size_download} bytes\n' \
   "http://127.0.0.1:8291/listening?token=$TOKEN" \
   -H 'Content-Type: application/x-www-form-urlencoded' \
   --data-urlencode 'text=山道上起了雾。' \
   --data-urlencode 'speed=1'
-file /tmp/t.wav
+
+node -e "const b=require('fs').readFileSync('/tmp/t.wav');console.log(b.subarray(0,4).toString(), b.length, 'bytes')"
 ```
 
-应该 `200` + 几十 KB，`file` 认出 `RIFF ... WAVE audio`。
+应该 `200` + 几十 KB，最后一行打印 `RIFF <字节数> bytes`。
+
+> Windows：没有 `file`、也不一定装了 `python3`，上面两条都用 node 代替了；
+> 把 `/tmp/` 换成 `%TEMP%\`，`$TOKEN=$(...)` 换成 `$TOKEN = & $node -e "..."`。
 
 ### 6.5 接进 Readest / OpenAI 兼容阅读软件（可选，默认关闭）
 
@@ -345,10 +370,18 @@ cd /path/to/audiobook-tts-plugin
 HF_ENDPOINT=https://hf-mirror.com ./setup/install-local-engine.sh
 ```
 
+**先确认你的数据目录**——新装是 `audiobook-tts-plugin`，从旧版升级过来的会沿用 `mimo-tts`：
+
+```bash
+ls -d ~/.dsh/plugin-data/audiobook-tts-plugin 2>/dev/null || ls -d ~/.dsh/plugin-data/mimo-tts
+```
+
+下面用 `<数据目录>` 指代它。
+
 **必查**（这是最容易踩的坑）：
 
 ```bash
-ls -lh ~/.dsh/plugin-data/mimo-tts/models/qwen3tts-0.6b-base-8bit/speech_tokenizer/model.safetensors
+ls -lh <数据目录>/models/qwen3tts-0.6b-base-8bit/speech_tokenizer/model.safetensors
 ```
 
 必须是 **~682 MB** 的真文件。缺了它 `mlx-audio` **不会报错**，会用随机声码器，
@@ -360,9 +393,9 @@ ls -lh ~/.dsh/plugin-data/mimo-tts/models/qwen3tts-0.6b-base-8bit/speech_tokeniz
 
 | 字段 | 填什么 |
 |---|---|
-| Python | `~/.dsh/plugin-data/mimo-tts/venv/bin/python`（脚本会打印完整路径） |
+| Python | `<数据目录>/venv/bin/python`（脚本会打印完整路径） |
 | Sidecar 脚本 | **留空**。留空就用插件自带的 `sidecar/server.py` |
-| 模型目录 | `~/.dsh/plugin-data/mimo-tts/models/qwen3tts-0.6b-base-8bit` |
+| 模型目录 | `<数据目录>/models/qwen3tts-0.6b-base-8bit` |
 | 端口 | `8398`（默认，只绑 127.0.0.1，不对外） |
 | 空闲卸载 | `1800` 秒（30 分钟，含 15 分钟预热保活窗口）。`0` = 常驻（占 ~2.3 GB 内存） |
 
