@@ -421,7 +421,9 @@ export class LocalEngine {
       }
       this.requests++
       if (markWarm) {
-        if (!this.warmStartedAt) this.warmStartedAt = Date.now()
+        // 每次合成成功都重新起算保活窗口：原来只在首次写一次，等于「首次预热后固定一段不许卸载」，
+        // 之后一直用的人只看到行为随进程启动时间漂移。
+        this.warmStartedAt = Date.now()
         this.warm = true
         this.warmError = ''
         this.warmRetryAt = 0
@@ -470,7 +472,7 @@ export class LocalEngine {
         await this.synthesize({ text: text || '预热一下。', role, markWarm: false })
         if (gen !== this.processGeneration) return false
         this.warm = true
-        if (!this.warmStartedAt) this.warmStartedAt = Date.now()
+        this.warmStartedAt = Date.now()
         this.warmError = ''
         this.warmRetryAt = 0
         this.log('[local] 预热完成')
