@@ -248,10 +248,13 @@ export class HybridProvider extends TTSProvider {
     }
 
     const model = this.modelKey()
-    const keys = requests.map((req) => cacheKey({ ...req, model }))
+    // 云端克隆（MiMo）与本地（Qwen3-TTS + 参考音）是两套引擎，同一句产出的音频不同。
+    // 两者共用一份键时，先写入的一方会替另一方作答，表现为「同一句突然换嗓子」且无从归因。
+    const cloudKeys = requests.map((req) => cacheKey({ ...req, model: `${model}|cloud` }))
+    const localKeys = requests.map((req) => cacheKey({ ...req, model: `${model}|local` }))
 
     if (!useLocal) {
-      const out = await this.#synthesizeHybridCloud(requests, { keys, localWarm })
+      const out = await this.#synthesizeHybridCloud(requests, { cloudKeys, localKeys, localWarm })
       this.lastSource = out.source
       this.lastSwitchReason = out.reason
       const finalWav = this.#applyRms(out.wav, cfg)
@@ -266,7 +269,7 @@ export class HybridProvider extends TTSProvider {
     const results = new Array(requests.length)
     let hits = 0
     const tasks = requests.map((req, i) => async () => {
-      const key = keys[i]
+      const key = localKeys[i]
       const cached = this.cache.get(key)
       if (cached) {
         engine.touch()
@@ -301,17 +304,17 @@ export class HybridProvider extends TTSProvider {
     }
   }
 
-  async #synthesizeHybridCloud(requests, { keys, localWarm }) {
+  async #synthesizeHybridCloud(requests, { cloudKeys, localKeys, localWarm }) {
     const cfg = this.getConfig()
     const engine = this.local.engine
     const cloudResults = new Array(requests.length)
     const localResults = new Array(requests.length)
-    let hits = 0
-    const buildTasks = (kind, results) => requests.map((req, i) => async () => {
+    const hits = { cloud: 0, local: 0 }
+    const buildTasks = (kind, keys, results) => requests.map((req, i) => async () => {
       const key = keys[i]
       const cached = this.cache.get(key)
       if (cached) {
-        hits++
+        hits[kind]++
         results[i] = cached
         return
       }
@@ -321,14 +324,14 @@ export class HybridProvider extends TTSProvider {
         ? await this.mimo.cloudClone(req)
         : await engine.synthesize({ text: req.text, role: req.role })
     })
-    const cloudTasks = buildTasks('cloud', cloudResults)
+    const cloudTasks = buildTasks('cloud', cloudKeys, cloudResults)
     const cloudLimit = Math.max(1, Math.min(2, Number(cfg.upstream.hybrid?.cloudConcurrency) || 2))
     let source = 'hybrid-cloud'
     let results = cloudResults
     let reason = 'cold-cloud'
 
     if (localWarm) {
-      const localTasks = buildTasks('local', localResults)
+      const localTasks = buildTasks('local', localKeys, localResults)
       const winner = await Promise.any([
         runLimited(cloudTasks, cloudLimit).then(() => 'cloud'),
         runLimited(localTasks, 1).then(() => 'local'),
@@ -362,7 +365,7 @@ export class HybridProvider extends TTSProvider {
           }
         }
         if (reason !== 'budget-warmup-failed-cloud') {
-          const localTasks = buildTasks('local', localResults)
+          const localTasks = buildTasks('local', localKeys, localResults)
           await runLimited(localTasks, 1)
           source = 'hybrid-local'
           results = localResults
@@ -372,12 +375,20 @@ export class HybridProvider extends TTSProvider {
       }
     }
 
+    // 写回按实际来源记账：竞速/兜底可能最终采用本地那组，不能一律写到云端键上。
+    const usedKeys = results === cloudResults ? cloudKeys : localKeys
     for (let i = 0; i < results.length; i++) {
-      if (results[i]) this.cache.set(keys[i], results[i])
+      if (results[i]) this.cache.set(usedKeys[i], results[i])
     }
     const { wav, durationSec } = concatWavs(results)
     this.lastSwitchReason = reason
-    return { wav, durationSec, hits, source, reason }
+    return {
+      wav,
+      durationSec,
+      hits: results === cloudResults ? hits.cloud : hits.local,
+      source,
+      reason,
+    }
   }
 
   async onConfigChange(before, after) {

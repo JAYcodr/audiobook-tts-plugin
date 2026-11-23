@@ -197,6 +197,54 @@ test('HybridProvider 冷启动走云端克隆顶班，本地预热就绪后切�
   }
 })
 
+test('Issue #20: 同一句先云端后本地，不能命中对方写进缓存的音频', async () => {
+  const dir = fresh('mimo-hyb-source-')
+  const refWav = join(dir, 'narr.wav')
+  writeFileSync(refWav, encodeWav(Buffer.alloc(4800), 24000, 1, 16))
+  let svc
+  try {
+    const store = new Store(dir)
+    store.load({})
+    store.update({
+      auth: { enabled: false },
+      upstream: {
+        provider: 'hybrid',
+        keys: ['sk-cloud-key-123456'],
+        local: {
+          pythonPath: '/opt/venv/bin/python',
+          modelPath: '/models/qwen',
+          refs: { narrator: { wav: refWav, text: '旁白参考' } },
+        },
+        hybrid: { maxCloudBootstrap: 4, cloudConcurrency: 2, targetRms: 0, warmup: false },
+      },
+    })
+    svc = new TtsService({ store, log: () => {} })
+    const cloudAudio = encodeWav(Buffer.alloc(2400, 0x11), 24000, 1, 16)
+    const localAudio = encodeWav(Buffer.alloc(2400, 0x22), 24000, 1, 16)
+    svc.mimoProvider.cloudClone = async () => cloudAudio
+    svc.local.synthesize = async () => localAudio
+
+    const requests = [{ text: '同一句话。', role: 'narrator' }]
+
+    // 冷启动：本地未热，云端顶班并把音频写进缓存
+    const r1 = await svc.synthesize(requests, { clientKey: 'cold-1', started: Date.now() })
+    assert.equal(r1.source, 'hybrid-cloud')
+    assert.deepEqual(r1.wav, cloudAudio)
+
+    // 本地热了，换一个客户端重听同一句：必须由本地引擎重新合成，
+    // 命中云端那条缓存就会换嗓子（修复前 hits 会等于段数、wav 仍是云端音频）。
+    svc.local.state = 'ready'
+    svc.local.warm = true
+    const r2 = await svc.synthesize(requests, { clientKey: 'warm-2', started: Date.now() })
+    assert.equal(r2.source, 'hybrid-local')
+    assert.deepEqual(r2.wav, localAudio)
+    assert.notDeepEqual(r2.wav, cloudAudio)
+  } finally {
+    await svc?.stop().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('自定义 TTSProvider 可通过 registerProvider 接入流水线', async () => {
   const dir = fresh()
   try {
