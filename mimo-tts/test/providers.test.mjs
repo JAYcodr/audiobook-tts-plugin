@@ -188,7 +188,7 @@ test('HybridProvider 冷启动走云端克隆顶班，本地预热就绪后切�
     // 模拟本地预热就绪并已有充足缓冲（或新段落重置）
     svc.local.state = 'ready'
     svc.local.warm = true
-    const r2 = await svc.synthesize([{ text: '第一章 开端', role: 'narrator' }], { clientKey: 'dev1', started: Date.now() })
+    const r2 = await svc.synthesize([{ text: '第一章 开端，山道上起了雾，他停下脚步，抬头看了看天色。', role: 'narrator' }], { clientKey: 'dev1', started: Date.now() })
     assert.equal(r2.source, 'hybrid-local')
     assert.equal(svc.hybridStatus().lastSource, 'hybrid-local')
   } finally {
@@ -224,7 +224,7 @@ test('Issue #20: 同一句先云端后本地，不能命中对方写进缓存的
     svc.mimoProvider.cloudClone = async () => cloudAudio
     svc.local.synthesize = async () => localAudio
 
-    const requests = [{ text: '同一句话。', role: 'narrator' }]
+    const requests = [{ text: '同一句话，山道上起了雾，他停下脚步，抬头看了看天色，又继续走。', role: 'narrator' }]
 
     // 冷启动：本地未热，云端顶班并把音频写进缓存
     const r1 = await svc.synthesize(requests, { clientKey: 'cold-1', started: Date.now() })
@@ -239,6 +239,55 @@ test('Issue #20: 同一句先云端后本地，不能命中对方写进缓存的
     assert.equal(r2.source, 'hybrid-local')
     assert.deepEqual(r2.wav, localAudio)
     assert.notDeepEqual(r2.wav, cloudAudio)
+  } finally {
+    await svc?.stop().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('短句本地合成追不上播放时改由云端直出（RTF 门），云端不可用仍回本地兜底', async () => {
+  const dir = fresh('mimo-hyb-rtf-')
+  const refWav = join(dir, 'narr.wav')
+  writeFileSync(refWav, encodeWav(Buffer.alloc(4800), 24000, 1, 16))
+  let svc
+  try {
+    const store = new Store(dir)
+    store.load({})
+    store.update({
+      auth: { enabled: false },
+      upstream: {
+        provider: 'hybrid',
+        keys: ['sk-cloud-key-123456'],
+        local: {
+          pythonPath: '/opt/venv/bin/python',
+          modelPath: '/models/qwen',
+          refs: { narrator: { wav: refWav, text: '旁白参考' } },
+        },
+        hybrid: { maxCloudBootstrap: 4, cloudConcurrency: 2, targetRms: 0, warmup: false },
+      },
+    })
+    svc = new TtsService({ store, log: () => {} })
+    const cloudAudio = encodeWav(Buffer.alloc(2400, 0x11), 24000, 1, 16)
+    const localAudio = encodeWav(Buffer.alloc(2400, 0x22), 24000, 1, 16)
+    svc.mimoProvider.cloudClone = async () => cloudAudio
+    svc.local.synthesize = async () => localAudio
+    svc.local.state = 'ready'
+    svc.local.warm = true
+
+    // 2 字：本地约 2.0s 才出 0.7s 音频（RTF≈2.9），交给云端
+    const short = await svc.synthesize([{ text: '咚。', role: 'narrator' }], { clientKey: 'rtf-1', started: Date.now() })
+    assert.equal(short.source, 'hybrid-cloud')
+    assert.match(svc.hybridProvider.lastSwitchReason, /^short-segment-cloud/)
+
+    // 40 字：RTF≈0.75，本地直出
+    const longText = '他推开门，檐下的雨水连成一片帘子，远处巷口有人在喊他的名字，声音被风撕成碎块。'
+    const long = await svc.synthesize([{ text: longText, role: 'narrator' }], { clientKey: 'rtf-2', started: Date.now() })
+    assert.equal(long.source, 'hybrid-local')
+
+    // 没有云端可用时，短句不能因为 RTF 门就哑掉，仍由本地兜底
+    store.update({ upstream: { keys: [] } })
+    const fallback = await svc.synthesize([{ text: '咚。', role: 'narrator' }], { clientKey: 'rtf-3', started: Date.now() })
+    assert.equal(fallback.source, 'hybrid-local')
   } finally {
     await svc?.stop().catch(() => {})
     rmSync(dir, { recursive: true, force: true })

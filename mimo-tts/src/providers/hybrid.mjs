@@ -16,6 +16,11 @@ const RECENT_TEXTS = 5
 const LOCAL_GEN_BASE_SEC = 1.8
 const LOCAL_GEN_PER_CHAR = 0.11
 const HYBRID_CLOUD_BUDGET_MS = 4000
+// 短段交给云端：本地每段有约 1.4–1.6s 固定开销（模型前向 + 声码器），短句音频只有
+// 1–2s，RTF 会 > 1 —— 合成追不上播放，听感就是「播一句、停一下」。
+const LOCAL_RTF_CLOUD_LIMIT = 1.0
+const AUDIO_BASE_SEC = 0.3
+const AUDIO_SEC_PER_CHAR = 0.2
 
 export class SessionTracker {
   constructor() {
@@ -91,6 +96,18 @@ export class HybridProvider extends TTSProvider {
 
   estimateLocalSec(chars) {
     return Math.max(2, LOCAL_GEN_BASE_SEC + chars * LOCAL_GEN_PER_CHAR)
+  }
+
+  /** 中文口播约 5 字/s；短句另有起音/收尾的固定长度，按 0.3 + 0.2×字数 估音频时长。 */
+  estimateAudioSec(chars) {
+    return AUDIO_BASE_SEC + Math.max(0, Number(chars) || 0) * AUDIO_SEC_PER_CHAR
+  }
+
+  /** 本地合成这一段要花的秒数 ÷ 这段音频能播的秒数；> 1 表示生产追不上消费。 */
+  estimateLocalRtf(chars) {
+    const audio = this.estimateAudioSec(chars)
+    if (audio <= 0) return 0
+    return this.estimateLocalSec(Math.max(0, Number(chars) || 0)) / audio
   }
 
   status() {
@@ -192,13 +209,25 @@ export class HybridProvider extends TTSProvider {
       }
     }
 
+    // 短段：本地固定开销占比过高，合成追不上播放 —— 交给云端，宁可多花一点额度。
+    // 只在云端可用时降级，否则仍然本地兜底（慢总比没声音好）。
+    let forceCloud = false
+    if (useLocal && cloud) {
+      const localRtf = this.estimateLocalRtf(totalChars)
+      if (localRtf > LOCAL_RTF_CLOUD_LIMIT) {
+        useLocal = false
+        forceCloud = true
+        reason = `short-segment-cloud rtf=${localRtf.toFixed(2)}`
+      }
+    }
+
     const switchReason = resetReason ? `${reason} (reset:${resetReason})` : reason
     const source = useLocal ? 'hybrid-local' : 'hybrid-cloud'
     if (commit) {
       this.lastSwitchReason = switchReason
       this.lastSource = source
     }
-    return { useLocal, reason, switchReason, resetReason, localWarm, totalChars, fullText, source }
+    return { useLocal, reason, switchReason, resetReason, localWarm, totalChars, fullText, source, forceCloud }
   }
 
   supportsStreaming(requests, ctx = {}) {
@@ -238,7 +267,7 @@ export class HybridProvider extends TTSProvider {
   async synthesizeBatch(requests, ctx = {}) {
     const cfg = this.getConfig()
     const engine = this.local.engine
-    const { useLocal, localWarm, totalChars, fullText, source } = this.decideBatch(requests, ctx, { commit: true })
+    const { useLocal, localWarm, totalChars, fullText, source, forceCloud, switchReason } = this.decideBatch(requests, ctx, { commit: true })
 
     if (!useLocal && !localWarm) {
       this.bootstrapCount++
@@ -254,9 +283,12 @@ export class HybridProvider extends TTSProvider {
     const localKeys = requests.map((req) => cacheKey({ ...req, model: `${model}|local` }))
 
     if (!useLocal) {
-      const out = await this.#synthesizeHybridCloud(requests, { cloudKeys, localKeys, localWarm })
+      // 短段强制云端时不进竞速：让本地也跑只会抢闸门、拖慢这一段。
+      const raceLocalWarm = forceCloud ? false : localWarm
+      const out = await this.#synthesizeHybridCloud(requests, { cloudKeys, localKeys, localWarm: raceLocalWarm })
       this.lastSource = out.source
-      this.lastSwitchReason = out.reason
+      // 短段门是决策层的原因，别被执行层的 race/cold-cloud 覆盖掉，否则控制台看不出为什么走云端
+      this.lastSwitchReason = forceCloud ? switchReason : out.reason
       const finalWav = this.#applyRms(out.wav, cfg)
       if (ctx.clientKey) {
         this.sessions.update(ctx.clientKey, {
