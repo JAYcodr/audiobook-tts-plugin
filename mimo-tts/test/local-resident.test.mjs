@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Store } from '../src/config.mjs'
 import { TtsService } from '../src/service.mjs'
+import { encodeWav } from '../src/wav.mjs'
 
 const fresh = (p = 'mimo-res-') => mkdtempSync(join(tmpdir(), p))
 
@@ -100,6 +101,62 @@ test('Issue #4: 常驻模式（idleUnloadSeconds=0）永不空闲卸载，切换
     assert.equal(policySynced, 1)
     assert.equal(eng.status().mode, 'powersave')
   } finally {
+    await svc?.stop().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('Issue #14: 每次合成成功都顺延预热保活窗口', async () => {
+  const dir = fresh()
+  let svc
+  const prevFetch = globalThis.fetch
+  try {
+    const store = new Store(dir)
+    store.load({})
+    store.update({
+      auth: { enabled: false },
+      upstream: {
+        provider: 'local',
+        local: {
+          pythonPath: '/opt/venv/bin/python',
+          modelPath: '/models/qwen',
+          idleUnloadSeconds: 300,
+          warmupWindowSeconds: 3600,
+          refs: { narrator: { wav: '/tmp/a.wav', text: '测试' } },
+        },
+      },
+    })
+    svc = new TtsService({ store, log: () => {} })
+    const eng = svc.local
+    const wav = encodeWav(Buffer.alloc(2400), 24000, 1, 16)
+    eng.state = 'ready'
+    eng.ensureStarted = async () => {}
+    eng.stop = async (reason) => {
+      eng.state = 'stopped'
+      eng.lastStopReason = reason
+      return eng.status()
+    }
+    globalThis.fetch = async () => ({
+      ok: true,
+      arrayBuffer: async () => wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.length),
+    })
+
+    await eng.synthesize({ text: '第一段。', role: 'narrator' })
+    const t1 = eng.warmStartedAt
+    assert.ok(t1 > 0, '首次合成后应记录保活起点')
+
+    await new Promise((r) => setTimeout(r, 5))
+    await eng.synthesize({ text: '第二段。', role: 'narrator' })
+    const t2 = eng.warmStartedAt
+    assert.ok(t2 > t1, `第二次合成后保活窗口应重新起算，实际 t1=${t1} t2=${t2}`)
+
+    // 窗口按最近一次合成起算：55 分钟仍热，65 分钟（且空闲 > idle）才卸载
+    assert.equal(await eng.checkIdleUnload(t2 + 55 * 60_000), false)
+    assert.equal(eng.state, 'ready')
+    assert.equal(await eng.checkIdleUnload(t2 + 65 * 60_000), true)
+    assert.equal(eng.state, 'stopped')
+  } finally {
+    globalThis.fetch = prevFetch
     await svc?.stop().catch(() => {})
     rmSync(dir, { recursive: true, force: true })
   }
