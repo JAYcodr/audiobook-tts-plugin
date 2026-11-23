@@ -180,3 +180,35 @@ test('Issue #8: 只读 token 调 /api/* 返回 403，但能正常听书、拉取
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('Issue #16: 空密码时 admin: 不再放行，设了密码才认 Basic', async () => {
+  const dir = fresh()
+  let svc
+  try {
+    const store = new Store(dir)
+    store.load({})
+    store.update({ upstream: { provider: 'mimo', keys: ['sk-test-auth-123456'] } })
+    svc = new TtsService({ store, log: () => {} })
+
+    const basic = (u, p) => `Basic ${Buffer.from(`${u}:${p}`).toString('base64')}`
+
+    // 默认 auth.pass 为空串：admin: 必须 401（修复前空串相等即通过）
+    assert.equal(store.config.auth.pass, '')
+    const empty = await callSvc(svc, { url: '/api/config', headers: { authorization: basic('admin', '') } })
+    assert.equal(empty.status, 401)
+
+    // 设了密码后正常放行，错误密码仍 401
+    store.update({ auth: { pass: 's3cret-pass' } })
+    const ok = await callSvc(svc, { url: '/api/config', headers: { authorization: basic('admin', 's3cret-pass') } })
+    assert.equal(ok.status, 200)
+    const wrong = await callSvc(svc, { url: '/api/config', headers: { authorization: basic('admin', 'wrong-pass') } })
+    assert.equal(wrong.status, 401)
+
+    // 带正确主令牌的访问不受影响
+    const tok = await callSvc(svc, { url: `/api/config?token=${encodeURIComponent(store.config.auth.token)}` })
+    assert.equal(tok.status, 200)
+  } finally {
+    await svc?.stop().catch(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

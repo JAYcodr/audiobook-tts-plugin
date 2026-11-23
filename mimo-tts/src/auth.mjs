@@ -58,7 +58,9 @@ export function resolveAuth(req, url, auth) {
     if (idx >= 0) {
       const user = decoded.slice(0, idx)
       const pass = decoded.slice(idx + 1)
-      if (safeEqual(user, auth.user) && safeEqual(pass, auth.pass)) {
+      // 空口令等于没有口令：默认 auth.pass 为空串，任何设备用 `admin:` 就能读写配置。
+      // 未设密码时 Basic 一律不放行，请改用 auth.token，或先设 auth.pass。
+      if (auth.pass && auth.user && safeEqual(user, auth.user) && safeEqual(pass, auth.pass)) {
         return { ok: true, role: 'admin', tokenId: 'basic', tokenLabel: 'Basic', token: '' }
       }
     }
