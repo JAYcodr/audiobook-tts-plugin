@@ -193,6 +193,11 @@ export function humanizeSwitchReason(rawReason) {
     base = m
       ? `缓冲累积中，继续云端顶班（${m[1]}s < ${m[2]}s）`
       : '缓冲累积中，继续云端顶班'
+  } else if (main.startsWith('short-segment-cloud ')) {
+    const m = /rtf=([\d.]+)/.exec(main)
+    base = m
+      ? `短句本地合成追不上播放，改由云端直出（RTF ${m[1]}）`
+      : '短句本地合成追不上播放，改由云端直出'
   } else if (main.startsWith('long-build-buffer ')) {
     const rest = main.slice('long-build-buffer '.length).trim()
     base = `长段由云端快速攒缓冲（${rest}）`

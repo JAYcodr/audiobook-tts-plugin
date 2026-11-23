@@ -153,7 +153,7 @@ test('Issue #13: Hybrid + stream=true 首段走真 SSE synthesizeStream() 抢首
       method: 'POST',
       url: '/listening',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text: '第一章 本地接管测试。' }),
+      body: JSON.stringify({ text: '第一章 本地接管测试，山道上起了雾，他停下脚步，抬头看了看天色。' }),
     }), resLocal)
     assert.equal(resLocal.status, 200)
     assert.equal(resLocal.headers['X-Mimo-Source'], 'hybrid-local')
