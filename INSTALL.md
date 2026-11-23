@@ -329,6 +329,15 @@ node -e "const b=require('fs').readFileSync('/tmp/t.wav');console.log(b.subarray
 
 应该 `200` + 几十 KB，最后一行打印 `RIFF <字节数> bytes`。
 
+### 6.5 管理员口令（无头部署先做这一步）
+
+控制台的 Basic 登录**默认是关着的**：`auth.pass` 出厂为空，而空口令服务不认 Basic
+（`admin:` 这种写法会 401）——否则内网任何一台设备都能改配置、关鉴权。
+
+- 想用账密进控制台：`node bin/audiobook-tts.mjs config set auth.pass '<口令>'`，再重启服务；
+- 无头环境（NAS / 隧道）直接用 `auth.token` 就行，不必开口令；
+- **开了公网隧道的务必先设口令**，否则知道地址就等于拿到管理权。
+
 > Windows：没有 `file`、也不一定装了 `python3`，上面两条都用 node 代替了；
 > 把 `/tmp/` 换成 `%TEMP%\`，`$TOKEN=$(...)` 换成 `$TOKEN = & $node -e "..."`。
 
