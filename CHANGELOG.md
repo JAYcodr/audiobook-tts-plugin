@@ -2,7 +2,7 @@
 
 所有显著改动均记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
-## [未发布]
+## [0.6.5] - 2026-11-24
 
 ### 修复
 - **发布包补回安装脚本与内置参考音（#32）**：`setup/` 与 `refs/` 移入 `mimo-tts/` 并写进 `files`，走 npm / DSH 安装的人也能用「一键安装本地引擎」和默认参考音；`install-local-engine.sh` 兼容两种布局的 `requirements.txt`，缺失时开头明确报错。
