@@ -6,6 +6,10 @@
 > 已验证环境：macOS（Apple Silicon）· DSH ≥ 0.2.x · Node ≥ 20
 > 仓库**不含任何密钥**，也**不含模型权重**。
 
+> **先花三秒确认你有没有条件用**：这是**自托管**插件，没有公共托管地址，也没有官方服务器替你跑。
+> 你必须先有**一台常开的机器**（Mac / NAS / 小主机 / 长期不关的电脑）来跑服务端；只有手机和 Legado、没有这台机器的人暂时用不了——**即使选云端 MiMo 引擎，也需要自己的服务端在中间转发**。
+> 下面四种公网方案都是「把你自己的机器暴露出去」，不是别人提供的地址，见 [HTTPS-GUIDE.md](HTTPS-GUIDE.md)。
+
 ---
 
 ## 三种常见用法
@@ -26,7 +30,7 @@
 
 | 引擎模式 | 适用场景 | 依赖与成本 | 特点 |
 |---|---|---|---|
-| **本地 Qwen3-TTS** (`local`) | macOS Apple Silicon 主力离线方案 | 下载 1.9 GB MLX 模型；免费、全离线 | 参考音克隆；空闲自动卸载（释放 ~2.3 GB 内存） |
+| **本地 Qwen3-TTS** (`local`) | macOS Apple Silicon 主力离线方案 | 下载 1.9 GB MLX 模型；免费、全离线 | 参考音克隆；空闲自动卸载（释放约 3.2–3.7 GB 内存） |
 | **OpenAI 兼容** (`openai`) | 对接社区本地/云端方案（Kokoro-FastAPI / Edge-TTS-OpenAI / CosyVoice / OpenAI） | 只需 `/v1/audio/speech` 接口；本地对接免 Key | 跨平台（macOS / Linux / Windows / Docker），旁白/对话可独立配音色 |
 | **云端 MiMo** (`mimo`) | 零本地依赖快速上手（macOS / Linux / Windows） | 小米 MiMo API Key（`sk-` / `tp-`） | 9 个内置音色；支持多 Key 轮转冷却与低延迟流式 |
 | **混合启动** (`hybrid`) | 想要首段秒出声 + 后续切本地 | 本地模型 + MiMo Key | 冷启动前几段云端克隆顶班，后台预热本地，缓冲充足后自动切本地 |
@@ -103,11 +107,13 @@ git clone https://github.com/JAYcodr/audiobook-tts-plugin.git ~/dsh-plugins/audi
 
 发布与更新流程见 [docs/RELEASE.md](docs/RELEASE.md)。
 
-### 2) 或者独立运行（不依赖 DSH，适合 NAS / Linux / Docker）
+### 2) 或者独立运行（不依赖 DSH，适合 NAS / Linux）
 
 ```bash
 node mimo-tts/bin/audiobook-tts.mjs --port 8291 --data ./data
 ```
+
+> NAS / Linux 上**本地 Qwen3-TTS（MLX）不可用**（只支持 macOS Apple Silicon）。免费的 7×24 路线是给常开机器起一个 OpenAI 兼容 TTS 服务再走 `provider=openai`，命令见 [INSTALL.md 第 5.4 节](INSTALL.md#54-nas--linux--docker走-openai-兼容后端命令未验证)。**该页命令尚未在真机跑通，不要当成已验证的快速开始。**
 
 ### 3) 配置引擎并接入 Legado
 
@@ -119,6 +125,8 @@ node mimo-tts/bin/audiobook-tts.mjs --port 8291 --data ./data
 3. 打开「交付」页可直接一键启停 **Quick Tunnel**（或按 [HTTPS-GUIDE.md](HTTPS-GUIDE.md) 选用 Tailscale Funnel / 命名隧道 / CF Worker+KV 中转），用手机直接扫**纯离线 SVG 二维码（LAN / WAN / Quick）**或生成设备独立的**只读分享令牌**安全交付亲友设备；兼容 Readest 等客户端可启用 Module 09 `/v1/audio/speech`。各方案细节见 [HTTPS-GUIDE.md](HTTPS-GUIDE.md) 与 [mimo-tts/docs/streaming-legado-compat.md](mimo-tts/docs/streaming-legado-compat.md)。
 
 详细安装、四路公网 HTTPS 方案与多场景排错请阅读 [INSTALL.md](INSTALL.md)、[HTTPS-GUIDE.md](HTTPS-GUIDE.md) 与 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)。
+
+> `synth.stream` 默认关闭是刻意选择：流式 WAV 写的是未知长度头，部分 Android 播放器会丢失总时长、无法拖拽或吞尾音。想低延迟可在单条 Legado 引擎地址后加 `&stream=1` 灰度试用；原因、TTFB 对照命令与四项真机验收清单见 [streaming-legado-compat.md](mimo-tts/docs/streaming-legado-compat.md)，四项全过之前不改全局默认值。
 
 ---
 

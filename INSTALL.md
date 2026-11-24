@@ -287,6 +287,57 @@ open /tmp/test.wav     # 仅 macOS 直接播
 
 ---
 
+### 5.4 NAS / Linux / Docker：走 OpenAI 兼容后端（命令未验证）
+
+> **本页所有命令都未在真机跑通**：维护机上的 docker daemon 未启动，以下步骤按 Kokoro-FastAPI 官方 README 整理，属于「照着试、不保证一次成」。因此它不进 README 快速开始。
+>
+> 为什么需要这一页：本地 Qwen3-TTS 依赖 MLX，**在 Linux / NAS 上直接退出**（只支持 macOS Apple Silicon）。想免费用 7×24 听书，得给一台常开的机器起一个 OpenAI 兼容 TTS 服务，再让本插件走 `provider=openai`；代码现成，缺的只是这一页。
+
+**前提**：一台常开的 Linux / NAS（能跑 Docker）；插件本体也要有一台常开机器跑 `node mimo-tts/bin/audiobook-tts.mjs --port 8291 --data ./data`。
+
+**1. 起 Kokoro-FastAPI（未验证）**
+
+```bash
+docker run -d --name kokoro -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:latest
+curl -s http://127.0.0.1:8880/v1/models   # 能列出模型才算起来了
+```
+
+**2. 先设管理员口令，再开公网（未验证）**
+
+无头环境没有「以后再回控制台点一下」这条路；默认 `auth.pass` 是空的，先建实例再开隧道等于把管理口留在公网上。
+
+```bash
+node mimo-tts/bin/config.mjs config set auth.pass '<自己的口令>'
+```
+
+**3. 按顺序改上游（均未验证）**
+
+顺序不能提前：先切 `provider` 会因缺 `baseUrl` 校验不过。
+
+```bash
+node mimo-tts/bin/config.mjs config set upstream.openai.baseUrl http://127.0.0.1:8880/v1
+node mimo-tts/bin/config.mjs config set upstream.openai.model kokoro
+node mimo-tts/bin/config.mjs config set upstream.openai.narratorVoice af_heart
+node mimo-tts/bin/config.mjs config set upstream.provider openai
+```
+
+对话音色可留空，会自动回落到旁白音色。
+
+**4. 无头环境拿访问令牌（未验证）**
+
+命令行导出默认脱敏，别指望「去看控制台」——这一页就是要能在 SSH 里复制出令牌：
+
+```bash
+node mimo-tts/bin/config.mjs config get auth.token --json
+# 或直接读数据目录里 config.json 的 auth.token 字段
+```
+
+把令牌拼进 Legado 导入地址 `.../legado.json?token=<令牌>`。要发给亲友请签发 `auth.readTokens` 只读令牌，别把主令牌发出去。
+
+**5. 验收（未验证）**：手机 Legado 导入后，**旁白段和对白段都要出声**，不能只验容器起来了。真跑通一台干净的 Linux 机器并把结果贴回来，才把这一页标成「已验证」。
+
+---
+
 ## 6. 接进 Legado（手机）
 
 ### 6.1 拿导入地址
@@ -410,7 +461,7 @@ ls -lh <数据目录>/models/qwen3tts-0.6b-base-8bit/speech_tokenizer/model.safe
 | Sidecar 脚本 | **留空**。留空就用插件自带的 `sidecar/server.py` |
 | 模型目录 | `<数据目录>/models/qwen3tts-0.6b-base-8bit` |
 | 端口 | `8398`（默认，只绑 127.0.0.1，不对外） |
-| 空闲卸载 | `1800` 秒（30 分钟，含 15 分钟预热保活窗口）。`0` = 常驻（占 ~2.3 GB 内存） |
+| 空闲卸载 | `1800` 秒（30 分钟，含 15 分钟预热保活窗口）。`0` = 常驻（实测约 3.2–3.7 GB，16 GB 机器注意余量） |
 
 然后是参考音（模块里就叫这四个字段）：
 
@@ -422,6 +473,8 @@ ls -lh <数据目录>/models/qwen3tts-0.6b-base-8bit/speech_tokenizer/model.safe
 最后「引擎 → 渲染来源」选 `本地`，保存。
 
 > 参考文本必须是音频里**逐字**说出来的内容。文本对不上，克隆出来的音色就会飘。
+>
+> **已知边界**：旁白和对话配了不同参考音、却把音色与 `style` 填成一样时，同一句话会互相命中缓存，听起来像两个角色串了音。改缓存键要连带回归测试，暂不处理；两个角色各配参考音时请用**不同的风格/音色描述**。
 
 ### 7.3 第一次合成会慢
 
