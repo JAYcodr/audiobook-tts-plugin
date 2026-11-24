@@ -40,7 +40,7 @@
 差别只有三处：
 
 - 路径写成 `C:\Users\你\dsh-plugins\audiobook-tts-plugin\mimo-tts`；
-- `setup/*.sh` 别跑，那是给 macOS/Linux 的；
+- `mimo-tts/setup/*.sh` 别跑，那是给 macOS/Linux 的；
 - 配置目录是 `%USERPROFILE%\.dsh\plugin-data\audiobook-tts-plugin\`（若已有旧版 `mimo-tts` 目录会自动兼容沿用）。
 
 其余步骤（装插件、重启、填 Key、导入 Legado）一模一样。
@@ -58,14 +58,16 @@ mkdir -p ~/dsh-plugins
 git clone https://github.com/JAYcodr/audiobook-tts-plugin.git ~/dsh-plugins/audiobook-tts-plugin
 ```
 
-装进 DSH 的是仓库里的 `mimo-tts/` 子目录（仓库根下就是它），
-**整包别拆、别删**——`setup/` 要按自己的位置去找 `refs/` 和 `mimo-tts/`，拆散了脚本就找不到了。
+装进 DSH 的是仓库里的 `mimo-tts/` 子目录（npm 发布包就是这个目录的内容）。
+`mimo-tts/setup/` 与 `mimo-tts/refs/` 都在这个子目录里，随包一起分发，别单独拆出去。
+
+> **包安装没有仓库根**：`link:` 克隆仓库的人可以在仓库内跑 `./mimo-tts/setup/check-env.sh`；从 npm / DSH 安装的人只有包目录，体检请点控制台「向导与体检 → 运行体检」。
 
 **验证**：
 
 ```bash
 ls ~/dsh-plugins/audiobook-tts-plugin/mimo-tts/package.json
-ls ~/dsh-plugins/audiobook-tts-plugin/refs/
+ls ~/dsh-plugins/audiobook-tts-plugin/mimo-tts/refs/
 ```
 
 > 为什么强调「不能移动」：用**本地 `link:` 方式**安装时，插件是按绝对路径装进 DSH 的。
@@ -77,8 +79,10 @@ ls ~/dsh-plugins/audiobook-tts-plugin/refs/
 
 ### 2.1 首选：让 AI 装（最省事）
 
-把 [AI-SETUP-PROMPT.md](AI-SETUP-PROMPT.md) 里的整段内容复制，发给 DSH 里的 AI。
+把**当前版本的 [INSTALL.md](INSTALL.md) 第 1–4 节**发给 DSH 里的 AI，让它按步骤执行。
 它会用 `plugin_manager` / `dsh plugin` 安装（npm 或本地包）并验证到「重启之前」，并且只问你两件事：装哪个引擎、Key 是多少。
+
+> 仓库不再保留一份单独的「AI 安装提示词」：那种副本停在旧版也不会报错，只会让 AI 配出缺只读分享令牌、缺缓存与输出格式配置的实例。以 INSTALL.md 为准，每次发版只维护一份。
 
 > **最后一步重启它做不了，得你来**：见第 3 节，完全退出 DSH（托盘图标也要退）。
 > AI 装完说「请重启」不是它偷懒——宿主不重启就不会加载新的模块。
@@ -362,7 +366,7 @@ v0.4.0 起，最省事的做法是直接在控制台顶部点「**打开向导�
 
 ```bash
 cd /path/to/audiobook-tts-plugin
-./setup/install-local-engine.sh
+./mimo-tts/setup/install-local-engine.sh
 ```
 
 它会做四件事：
@@ -376,7 +380,7 @@ cd /path/to/audiobook-tts-plugin
 想强制用镜像，直接：
 
 ```bash
-HF_ENDPOINT=https://hf-mirror.com ./setup/install-local-engine.sh
+HF_ENDPOINT=https://hf-mirror.com ./mimo-tts/setup/install-local-engine.sh
 ```
 
 **先确认你的数据目录**——新装是 `audiobook-tts-plugin`，从旧版升级过来的会沿用 `mimo-tts`：
@@ -532,7 +536,7 @@ node ~/dsh-plugins/audiobook-tts-plugin/mimo-tts/bin/audiobook-tts.mjs \
 
 ## 11. 配置项速查
 
-只想看默认值长什么样，看 [setup/config.example.json](setup/config.example.json)。
+只想看默认值长什么样，看 [mimo-tts/setup/config.example.json](mimo-tts/setup/config.example.json)。
 真正生效的是 `config.json`，而且**控制台改完立刻生效，不用重启**。
 
 几个真正值得动的：

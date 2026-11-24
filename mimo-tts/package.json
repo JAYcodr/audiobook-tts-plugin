@@ -45,7 +45,9 @@
     "docs/*.md",
     "sidecar/server.py",
     "sidecar/requirements.txt",
-    "sidecar/README.md"
+    "sidecar/README.md",
+    "setup/",
+    "refs/*.wav"
   ],
   "bin": {
     "audiobook-tts": "bin/audiobook-tts.mjs",

@@ -61,10 +61,15 @@ export function resolvePackageRoot() {
   return PACKAGE_ROOT
 }
 
-/** 返回仓库根目录（优先上级目录中含 setup/ 或 refs/ 的目录，找不到则退回包目录）。 */
+/**
+ * 返回仓库根目录（仅供仓库内可选附件使用，例如 deploy/ 下的 KV 同步脚本）。
+ *
+ * setup/ 与 refs/ 已搬进包内，不能再拿它们当仓库根的判据；npm 安装形态下
+ * 上级目录是 node_modules，此时退回包目录。
+ */
 export function resolveRepoRoot() {
   const parent = resolve(PACKAGE_ROOT, '..')
-  if (existsSync(join(parent, 'setup')) || existsSync(join(parent, 'refs'))) {
+  if (existsSync(join(parent, 'deploy')) || existsSync(join(parent, 'mimo-tts'))) {
     return parent
   }
   return PACKAGE_ROOT

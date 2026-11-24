@@ -42,33 +42,33 @@ audiobook-tts-plugin/
 ├── HTTPS-GUIDE.md            ← 公网 HTTPS 四选一指南（Quick Tunnel / Tailscale / 命名隧道 / Worker+KV）
 ├── TROUBLESHOOTING.md        ← 按症状排查手册
 ├── SUPPORT.md                ← 卡住了：自查顺序、材料收集、脱敏清单与可复制的 issue 模板
-├── AI-SETUP-PROMPT.md        ← 发给 DSH AI 的一键安装提示词（v0.6.0）
 ├── CHANGELOG.md              ← 版本变更记录
 ├── docs/RELEASE.md           ← 维护者发布与更新 runbook（npm publish / DSH upgrade）
 ├── LICENSE                   ← MIT 许可证
 ├── deploy/
-│   └── cf-worker-relay/      ← 方案 D：Cloudflare Worker + KV 固定域名中转与同步脚本
-├── mimo-tts/                 ← 插件本体（package.json: audiobook-tts-plugin）
-│   ├── index.js              DSH 宿主半边（挂载 /mimo-tts 与 /audiobook-tts 路由）
-│   ├── client/               控制台模块化前端源码（React + deck.css）
-│   ├── client.js             构建产物（单文件，运行时零外部请求）
-│   ├── bin/                  独立运行入口（audiobook-tts.mjs / mimo-tts.mjs 兼容别名）与 config.mjs 配置 CLI
-│   ├── src/                  服务内核、OpenAI 服务端点、TunnelManager、切分、WAV 拼接与 providers/
-│   ├── sidecar/              本地 Qwen3-TTS Python/MLX 边车与锁定依赖
-│   ├── skills/               agent 说明书（audiobook-tts-config）
-│   ├── test/                 单元与 HTTP 集成测试（node --test）
-│   └── README.md             开发者架构、Provider 扩展与 API 文档
-├── refs/                     默认旁白参考音（5s / 10s / 14s）与逐字文本
-└── setup/
-    ├── agent-preflight.sh       Agent 只读环境摸底探针（JSON / --human，绝不输出密钥）
-    ├── install-local-engine.sh  本地引擎唯一安装入口（venv + 锁定依赖 + 下载 + 校验）
-    ├── download-model.sh        单独下载模型（含 hf-mirror 回退与权重完整性校验）
-    ├── check-env.sh             只读环境体检脚本
-    ├── README-model.md          模型手动下载与排错
-    └── config.example.json      标准配置模板
+│   └── cf-worker-relay/      ← 方案 D：Cloudflare Worker + KV 中转与同步脚本（仅仓库内，不进发布包）
+└── mimo-tts/                 ← 插件本体，npm 发布的就是这个目录
+    ├── index.js              DSH 宿主半边（挂载 /mimo-tts 与 /audiobook-tts 路由）
+    ├── client/               控制台模块化前端源码（React + deck.css）
+    ├── client.js             构建产物（单文件，运行时零外部请求）
+    ├── bin/                  独立运行入口（audiobook-tts.mjs / mimo-tts.mjs 兼容别名）与 config.mjs 配置 CLI
+    ├── src/                  服务内核、OpenAI 服务端点、TunnelManager、切分、WAV 拼接与 providers/
+    ├── sidecar/              本地 Qwen3-TTS Python/MLX 边车与锁定依赖
+    ├── skills/               agent 说明书（audiobook-tts-config）
+    ├── refs/                 默认旁白参考音（5s / 10s / 14s）
+    ├── docs/                 开发者文档（含参考音逐字文本 refs-transcripts.md）
+    ├── setup                 安装与体检脚本，随发布包一起分发
+    │   ├── install-local-engine.sh  本地引擎唯一安装入口（venv + 锁定依赖 + 下载 + 校验）
+    │   ├── download-model.sh        单独下载模型（含 hf-mirror 回退与权重完整性校验）
+    │   ├── check-env.sh             只读环境体检脚本
+    │   ├── README-model.md          模型手动下载与排错
+    │   └── config.example.json      标准配置模板
+    ├── test/                 单元与 HTTP 集成测试（node --test）
+    └── README.md             开发者架构、Provider 扩展与 API 文档
 ```
 
-> 请保持仓库目录完整，不要单独拆出 `mimo-tts/`（`setup/` 脚本会联动 `refs/` 与 `mimo-tts/sidecar/requirements.txt`）。
+> `mimo-tts/setup/` 与 `mimo-tts/refs/` 随 `mimo-tts/` 一起发布，npm / DSH 发布包同样带这两份，走包安装的人也能用「一键安装本地引擎」和默认参考音。
+> **只有克隆仓库的人才有仓库根**：仓库内跑脚本用 `./mimo-tts/setup/check-env.sh`；走包安装没有仓库，体检请点控制台「向导与体检 → 运行体检」，别照抄仓库里的路径。
 
 ---
 
@@ -97,7 +97,9 @@ mkdir -p ~/dsh-plugins
 git clone https://github.com/JAYcodr/audiobook-tts-plugin.git ~/dsh-plugins/audiobook-tts-plugin
 ```
 
-在 DSH 对话框中让 `plugin_manager` 安装 `~/dsh-plugins/audiobook-tts-plugin/mimo-tts`（或发送 [AI-SETUP-PROMPT.md](AI-SETUP-PROMPT.md) 全文给 AI 自动完成）。
+在 DSH 对话框中让 `plugin_manager` 安装 `~/dsh-plugins/audiobook-tts-plugin/mimo-tts`。
+
+> 仓库不再提供「一键 AI 安装提示词」副本：那份文档停在旧版本、不会报错，只会让 AI 配出缺分享令牌的实例。想让 AI 代劳，直接把当前版本的 [INSTALL.md](INSTALL.md) 发给它。
 
 发布与更新流程见 [docs/RELEASE.md](docs/RELEASE.md)。
 
@@ -112,7 +114,7 @@ node mimo-tts/bin/audiobook-tts.mjs --port 8291 --data ./data
 1. 在左侧栏打开「听书值守」→ 顶部异常引导条可一键打开「**向导与体检**」，或在「渲染设置」按 4 大分组配置：
    - **OpenAI 兼容（如本地 Kokoro / Edge-TTS）**：渲染来源选 `OpenAI`，填 `http://127.0.0.1:8880/v1`、模型和旁白/对话音色；
    - **云端 MiMo**：渲染来源选 `云端`，直接在引擎区填 `sk-...` API Key（Key 去 <https://platform.xiaomimimo.com/> 控制台 → API Keys 创建，步骤见 [INSTALL.md](INSTALL.md) 第 5.1 节），旁白/对话支持 `preset` 预置 / `design` 文字造音 / `clone` 声音克隆及一键音色方案；
-   - **本地 Qwen3-TTS（macOS arm64）**：可直接在「向导抽屉」点击「一键安装本地引擎（支持 hf-mirror）」，装完点「一键填入并切换本地」，或手动运行 `./setup/install-local-engine.sh`。默认空闲 `1800s`（30 分钟）卸载并配合 15 分钟预热保活窗口。
+   - **本地 Qwen3-TTS（macOS arm64）**：可直接在「向导抽屉」点击「一键安装本地引擎（支持 hf-mirror）」，装完点「一键填入并切换本地」——包安装与仓库内都走这一条。要手动跑脚本：仓库内是 `./mimo-tts/setup/install-local-engine.sh`；从包安装的脚本位于包根的 setup 目录，路径见包内 `mimo-tts/README.md`。默认空闲 `1800s`（30 分钟）卸载并配合 15 分钟预热保活窗口。
 2. 内置**多音字读音纠正词表**（默认开启）与自定义规则调试器，支持参考音**交互式波形裁剪（5–15s）与 RMS 归一**，并可直接在设置页开启 **MP3 / Opus 有损压缩输出**（需本机 `ffmpeg`）与 **HTTP `ETag` / `304` 缓存协商**。
 3. 打开「交付」页可直接一键启停 **Quick Tunnel**（或按 [HTTPS-GUIDE.md](HTTPS-GUIDE.md) 选用 Tailscale Funnel / 命名隧道 / CF Worker+KV 中转），用手机直接扫**纯离线 SVG 二维码（LAN / WAN / Quick）**或生成设备独立的**只读分享令牌**安全交付亲友设备；兼容 Readest 等客户端可启用 Module 09 `/v1/audio/speech`。各方案细节见 [HTTPS-GUIDE.md](HTTPS-GUIDE.md) 与 [mimo-tts/docs/streaming-legado-compat.md](mimo-tts/docs/streaming-legado-compat.md)。
 

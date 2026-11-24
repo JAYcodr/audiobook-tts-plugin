@@ -13,7 +13,7 @@
 
 ## 1. 提交前，三步自查（30 秒）
 
-1. 控制台顶部「打开向导与体检 → 运行体检（Doctor）」；终端里等价的是 `./setup/check-env.sh`
+1. 控制台顶部「打开向导与体检 → 运行体检（Doctor）」——**包安装与仓库内都走这一条**；只有克隆了仓库的人才能在终端跑等价命令 `./mimo-tts/setup/check-env.sh`，从 npm / DSH 安装的人没有仓库目录
 2. 在 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) 里搜症状关键词（`401` / `噪声` / `进度条` / `Worker` / `502` …）
 3. 看「渲染设置」右侧生效面板有没有脏标——**改了没保存，等于没改**
 
@@ -23,8 +23,7 @@
 
 ```bash
 cd /path/to/audiobook-tts-plugin
-./setup/check-env.sh
-./setup/agent-preflight.sh                 # 只读环境快照，JSON
+./mimo-tts/setup/check-env.sh
 curl -s http://127.0.0.1:8291/health
 tail -50 ~/.dsh/plugin-data/audiobook-tts-plugin/local-engine.log 2>/dev/null
 ```
@@ -79,7 +78,7 @@ tail -50 ~/.dsh/plugin-data/audiobook-tts-plugin/local-engine.log 2>/dev/null
 3. [每次都这样 / 偶发]
 
 ### 已排除
-- [ ] 跑过 Doctor / `./setup/check-env.sh`
+- [ ] 跑过 Doctor / `./mimo-tts/setup/check-env.sh`
 - [ ] 按 TROUBLESHOOTING.md 的哪一节试过：[第 N 节]
 - [ ] 完全退出并重启过 DSH
 - [ ] 换过端口 / 换过浏览器或手机重试
@@ -99,7 +98,7 @@ tail -50 ~/.dsh/plugin-data/audiobook-tts-plugin/local-engine.log 2>/dev/null
 
 如果你正用 DSH 里的 AI 装这个插件，直接把下面这句发过去：
 
-> 按仓库里的 SUPPORT.md 生成一份 issue 报告：跑 `setup/check-env.sh` 与 `setup/agent-preflight.sh`，贴 `/health` 和日志尾部，把所有 token、API Key、账号邮箱换成 `***`，输出成一段可以直接复制的 Markdown。
+> 按仓库里的 SUPPORT.md 生成一份 issue 报告：跑 `mimo-tts/setup/check-env.sh`（仅克隆仓库时；包安装请点控制台「运行体检」），贴 `/health` 和日志尾部，把所有 token、API Key、账号邮箱换成 `***`，输出成一段可以直接复制的 Markdown。
 
 它应当**先脱敏再输出**；如果发现要往文本里写真实密钥，应该停下来问你，而不是照做。
 

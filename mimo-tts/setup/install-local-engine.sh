@@ -10,7 +10,12 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/.." && pwd)"
-REQ_FILE="$REPO_ROOT/mimo-tts/sidecar/requirements.txt"
+# setup/ 与 sidecar/ 同在包根下；两种安装形态都探测一遍，缺失时开头就报错，
+# 别一路跑到 pip install 才炸「找不到依赖文件」（Issue #32 附）。
+REQ_FILE=""
+for candidate in "$REPO_ROOT/sidecar/requirements.txt" "$REPO_ROOT/mimo-tts/sidecar/requirements.txt"; do
+  if [ -f "$candidate" ]; then REQ_FILE="$candidate"; break; fi
+done
 
 resolve_data_dir() {
   if [ -n "${AUDIOBOOK_DATA:-${MIMO_DATA:-}}" ]; then
@@ -43,7 +48,12 @@ PYTHON="${PYTHON:-python3}"
 command -v "$PYTHON" >/dev/null || { echo "找不到 python3" >&2; exit 1; }
 echo "  python: $("$PYTHON" -V 2>&1)"
 echo "  数据目录: $DATA"
-[ -f "$REQ_FILE" ] || { echo "找不到依赖锁定文件: $REQ_FILE" >&2; exit 1; }
+echo "  认定的包根: $REPO_ROOT"
+if [ -z "$REQ_FILE" ]; then
+  echo "找不到依赖锁定文件：已探测 $REPO_ROOT/sidecar/requirements.txt 与 $REPO_ROOT/mimo-tts/sidecar/requirements.txt" >&2
+  echo "这通常说明发布包漏发了 sidecar/，请核对包内容而不是继续往下装。" >&2
+  exit 1
+fi
 
 echo
 echo "== [1/4] 建 venv =="
@@ -75,7 +85,7 @@ echo "== [4/4] 参考音 =="
 REFDIR="$REPO_ROOT/refs"
 if [ -f "$REFDIR/narrator-14s.wav" ]; then
   echo "  示例参考音: $REFDIR/narrator-14s.wav"
-  echo "  逐字文本见: $REFDIR/README.md（必须一致）"
+  echo "  逐字文本见: $REPO_ROOT/docs/refs-transcripts.md（必须一致）"
 else
   echo "  包里没找到 refs/narrator-14s.wav，自己准备一条 5–15 秒的 wav 也行。"
 fi
@@ -87,7 +97,7 @@ cat <<EOF
   Python      $VENV/bin/python
   模型目录    $MODEL
   参考音 wav  $REFDIR/narrator-14s.wav
-  参考文本    见 $REFDIR/README.md
+  参考文本    见 $REPO_ROOT/docs/refs-transcripts.md
 
 然后「引擎 → 渲染来源」选「本地」，保存，在「交付」页点「试听旁白」或跑一次 curl。
 

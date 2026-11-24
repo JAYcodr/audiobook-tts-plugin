@@ -33,12 +33,14 @@ npm --prefix mimo-tts run check
 ```
 
 必须全绿：ESLint 0 错、secret scan 0、`client.js` 重新构建、测试全过。
-另外建议确认打包内容没有把密钥、数据目录、`node_modules` 带进去：
+**再跑一次发布包内容门禁**（CI 的 `pack-gate` job 与本地是同一份脚本，不是"建议看一眼"）：
 
 ```bash
-cd mimo-tts
-npm pack --dry-run
+(cd mimo-tts && npm pack --dry-run --json > /tmp/pack.json)
+node mimo-tts/tools/pack-gate.mjs /tmp/pack.json
 ```
+
+它会断言包内安装脚本恰好 5 个、`refs/` 恰好 3 个且全是 `.wav`、`deploy/` 与 `agent-preflight` 为 0、CI 里没有未加前缀的安装脚本路径；`entryCount` 只打印不断言。0.6.0–0.6.2 就是因为这一步只能靠人记，包里的安装脚本与参考音连续三个版本都是 0 却没有任何一步变红。
 
 > `bin` 路径不要写 `./` 前缀。npm 11.12.1 在发布时会把它判为 invalid 并**静默删掉**
 > `bin` 映射（0.5.1 踩过这个坑），正确写法是 `"bin/audiobook-tts.mjs"`。

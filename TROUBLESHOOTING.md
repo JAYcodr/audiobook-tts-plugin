@@ -4,7 +4,7 @@
 
 ```bash
 cd /path/to/audiobook-tts-plugin
-./setup/check-env.sh
+./mimo-tts/setup/check-env.sh
 ```
 
 它会把平台、配置、端口、health、模型、参考音、Python 环境逐项标 OK / WARN / FAIL。
@@ -200,7 +200,7 @@ ls -lh ~/.dsh/plugin-data/audiobook-tts-plugin/models/qwen3tts-0.6b-base-8bit/sp
 
 ```bash
 rm -rf ~/.dsh/plugin-data/audiobook-tts-plugin/models/qwen3tts-0.6b-base-8bit
-./setup/download-model.sh
+./mimo-tts/setup/download-model.sh
 ```
 
 ### 8.2 报「本地引擎未在 180s 内就绪」
@@ -305,7 +305,7 @@ v0.4.0 起，`pythonPath`、`modelPath` 与参考音路径均支持 `~/` 家目�
 先收集，再发。完整流程（脱敏清单 + 可复制的 issue 正文 + 让 AI 代写）写在 [SUPPORT.md](SUPPORT.md)，这里只列最小集：
 
 ```bash
-./setup/check-env.sh                                                  # 体检结论
+./mimo-tts/setup/check-env.sh                                                  # 体检结论
 curl -s localhost:8291/health                                         # 服务状态
 curl -s http://127.0.0.1:<GUI端口>/mimo-tts/api/state | head -c 2000  # Key 已掩码，可直接贴
 tail -50 ~/.dsh/plugin-data/audiobook-tts-plugin/local-engine.log 2>/dev/null
