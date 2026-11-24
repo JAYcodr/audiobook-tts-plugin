@@ -4,7 +4,7 @@
  */
 import { randomBytes } from 'node:crypto'
 import { resolveAuth } from './auth.mjs'
-import { BUILTIN_VOICE_PROFILES, PRESET_VOICES, redact, validatePatch } from './config.mjs'
+import { BUILTIN_VOICE_PROFILES, DIALOGUE_QUOTE_MODES, PRESET_VOICES, redact, validatePatch } from './config.mjs'
 import { HttpInputError, readJson, sendJson } from './http.mjs'
 import { buildImportInfo } from './legado.mjs'
 import { BUILTIN_POLYPHONE_PRESETS, BUILTIN_RULE_PRESETS, previewTextPipeline, validateTextRules } from './lexicon.mjs'
@@ -214,6 +214,7 @@ export function createControlHandler({ service, requireAuth = false }) {
       }
       let textRules = service.config.textRules
       let maxSegmentChars = service.config.synth?.maxSegmentChars || 100
+      let dialogueQuoteChars = service.config.synth?.dialogueQuoteChars || 'standard'
       if (body.draft && typeof body.draft === 'object') {
         const checked = validatePatch(service.config, body.draft, { refsStore: service.refs })
         if (checked.problems.length) {
@@ -222,6 +223,7 @@ export function createControlHandler({ service, requireAuth = false }) {
         }
         textRules = checked.merged.textRules
         maxSegmentChars = checked.merged.synth?.maxSegmentChars || maxSegmentChars
+        dialogueQuoteChars = checked.merged.synth?.dialogueQuoteChars || dialogueQuoteChars
       } else if (body.textRules !== undefined) {
         const problems = validateTextRules(body.textRules)
         if (problems.length) {
@@ -234,8 +236,16 @@ export function createControlHandler({ service, requireAuth = false }) {
       if (Number.isInteger(explicitMax) && explicitMax >= 10 && explicitMax <= 300) {
         maxSegmentChars = explicitMax
       }
+      if (body.dialogueQuoteChars !== undefined) {
+        const mode = String(body.dialogueQuoteChars)
+        if (!DIALOGUE_QUOTE_MODES.includes(mode)) {
+          sendJson(res, 422, { error: 'synth.dialogueQuoteChars 必须是 standard / both / auto' })
+          return true
+        }
+        dialogueQuoteChars = mode
+      }
       const rawText = String(body.text ?? '').slice(0, 20_000)
-      const result = previewTextPipeline(rawText, { textRules, maxSegmentChars })
+      const result = previewTextPipeline(rawText, { textRules, maxSegmentChars, dialogueQuoteChars })
       sendJson(res, 200, result)
       return true
     }

@@ -504,7 +504,10 @@ export class TtsService {
   prepareSegments(text, cfg = this.config) {
     const afterGlobal = applyGlobalRules(text, cfg.textRules)
     if (!afterGlobal.trim()) return []
-    const raw = splitText(afterGlobal, { maxSegmentChars: cfg.synth?.maxSegmentChars })
+    const raw = splitText(afterGlobal, {
+      maxSegmentChars: cfg.synth?.maxSegmentChars,
+      dialogueQuoteChars: cfg.synth?.dialogueQuoteChars,
+    })
     return applySegmentRules(raw, cfg.textRules)
   }
 
@@ -546,7 +549,10 @@ export class TtsService {
     if (cleanRole === 'mixed') {
       const segments = applyTextRules !== false
         ? this.prepareSegments(text, effCfg)
-        : splitText(text, { maxSegmentChars: effCfg.synth?.maxSegmentChars })
+        : splitText(text, {
+        maxSegmentChars: effCfg.synth?.maxSegmentChars,
+        dialogueQuoteChars: effCfg.synth?.dialogueQuoteChars,
+      })
       if (!segments.length) throw new HttpInputError('规则替换或切分后没有可试听内容', 400)
       const requests = toRequests(segments, effCfg.voices)
       const wavs = []
@@ -577,6 +583,12 @@ export class TtsService {
     const before = structuredClone(this.config)
     const result = this.store.update(patch)
     if (result.problems?.length) return result
+
+    // 缓存键是「文本 + 音色」，不含 role：翻转引号口径后同一段文本的角色变了，
+    // 不清缓存会一直命中旧的旁白音频直到 TTL 过期（Issue #25）。
+    if (before.synth?.dialogueQuoteChars !== this.config.synth?.dialogueQuoteChars) {
+      this.cache.clear()
+    }
 
     await this.registry.onConfigChange(before, this.config)
 

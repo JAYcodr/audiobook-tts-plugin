@@ -69,7 +69,8 @@
     "maxSegmentChars": 100,
     "maxTextChars": 10000,
     "concurrency": 4,
-    "stream": false
+    "stream": false,
+    "dialogueQuoteChars": "standard"
   },
   "audio": {
     "format": "wav",

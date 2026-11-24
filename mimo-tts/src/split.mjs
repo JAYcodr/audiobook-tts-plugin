@@ -12,24 +12,54 @@
  * 3. 纯引号段（如收尾的 `”`）并回前一句。
  * 4. 超长句先按逗号切，仍超长才硬截断 —— 保证每段不超过上限。
  */
-
-/** 弯引号 / 角括号 / ASCII 引号，全部视为引号字符（用于合并纯引号残段） */
-const QUOTE_CHARS = new Set(['\u201c', '\u201d', '\u2018', '\u2019', '\u300c', '\u300d', '\u300e', '\u300f', '"', "'"])
 const SENTENCE_END_RE = /[。！？!；;]/
 const SPLIT_RE = /([。！？!；;]+)/
 
+/** 弯引号 “”：所有模式都认。 */
+const STANDARD_PAIRS = [['\u201c', '\u201d']]
+/** 台版排版与部分网文用「」『』标对白；standard 下它们只是道具名、招式名、系统提示。 */
+const CORNER_PAIRS = [['\u300c', '\u300d'], ['\u300e', '\u300f']]
+/** 与角色判定无关，但纯引号残段合并仍要认这些字符。 */
+const RESIDUE_QUOTE_CHARS = ['\u2018', '\u2019', '"', "'"]
+
 /**
- * 只有中文弯引号 “” 算对话引号。
+ * 对白引号口径（Issue #25 三态）：
+ * - standard：只认“”（0.6.2 起的行为，角括号是道具名）
+ * - both：同时认「」『』，给整本用角括号标对白的台版书
+ * - auto：一段里出现至少两对成对角括号、且弯引号对不占多数时自动按台版处理
  *
- * 角括号「」『』不算：小说里它们标的是道具名、招式名、系统提示、作品名
- * （「青锋剑」「天地无极功」），不是对白。早先把它们当对话引号，会把道具名
- * 单独切出来、交给对话音色去念，并且多切一段（每段一次推理开销）。
- * 需要「」当对白的老台版排版，改这一个 Map 即可。
+ * pairs / closeQuotes / quoteChars 三样同源：谁算对白、何时闭合、哪些纯引号
+ * 残段要并回前一句，不再有「两套口径并存」的问题。
  */
-const QUOTE_PAIRS = new Map([
-  ['\u201c', '\u201d'],
-])
-const CLOSE_QUOTES = new Set(QUOTE_PAIRS.values())
+function quoteRules(mode = 'standard', text = '') {
+  let pairs = STANDARD_PAIRS
+  if (mode === 'both') {
+    pairs = [...STANDARD_PAIRS, ...CORNER_PAIRS]
+  } else if (mode === 'auto') {
+    const cornerPairs = (text.match(/\u300c[^\u300d]*\u300d|\u300e[^\u300f]*\u300f/g) || []).length
+    const curlyPairs = (text.match(/\u201c[^\u201d]*\u201d/g) || []).length
+    if (cornerPairs >= 2 && cornerPairs > curlyPairs) pairs = [...STANDARD_PAIRS, ...CORNER_PAIRS]
+  }
+  const map = new Map(pairs)
+  const quoteChars = new Set([...map.keys(), ...map.values(), ...RESIDUE_QUOTE_CHARS])
+  return {
+    pairs: map,
+    closeQuotes: new Set(map.values()),
+    cornerOpens: new Set(CORNER_PAIRS.map(([open]) => open)),
+    quoteChars,
+  }
+}
+
+/**
+ * 短角括号引文（无句末标点、≤6 字）多半是「青锋剑」「回气丹」这类道具名，
+ * 不是对白。台版排版把「」当对白时仍保住 0.6.2 的这层保护；
+ * 真正的对白句几乎都带句号/问号/逗号或更长。
+ */
+function isCornerTerm(buf, rules) {
+  if (!rules.cornerOpens.has(buf[0])) return false
+  const inner = buf.slice(1, -1)
+  return inner.length <= 6 && !/[。！？!？；;，,、]/.test(inner)
+}
 
 /**
  * 将 ASCII 直引号按段落配对归一化为弯引号，同时保护英文缩写/所有格撇号。
@@ -95,24 +125,25 @@ function normalizeLineQuotes(line) {
 
 /**
  * @param {string} text 原文
- * @param {{maxSegmentChars?:number}} [opts]
+ * @param {{maxSegmentChars?:number, dialogueQuoteChars?:'standard'|'both'|'auto'}} [opts]
  * @returns {{text:string, role:'narrator'|'dialogue'}[]}
  */
 export function splitText(text, opts = {}) {
   const maxLen = Math.max(10, Math.min(300, Number(opts.maxSegmentChars) || 100))
   if (typeof text !== 'string' || !text.trim()) return []
 
+  const rules = quoteRules(opts.dialogueQuoteChars, text)
   const normalized = normalizeQuotes(text).replace(/。{2,}/g, '\u2026')
   const paragraphs = normalized.split(/\n+/)
   const segments = []
 
   for (const para of paragraphs) {
     if (!para.trim()) continue
-    const pieces = splitParagraphToPieces(para, maxLen)
+    const pieces = splitParagraphToPieces(para, maxLen, rules)
     // 同段落内跨句子保留引号栈，确保跨句对话（“第一句。第二句。”）与超长句二次切分不断开角色
     const quoteStack = []
     for (const sentence of pieces) {
-      for (const piece of splitByQuotes(sentence, quoteStack)) {
+      for (const piece of splitByQuotes(sentence, quoteStack, rules)) {
         const last = segments[segments.length - 1]
         if (last && last.role === piece.role && last.text.length + piece.text.length <= maxLen) {
           last.text += piece.text
@@ -125,7 +156,7 @@ export function splitText(text, opts = {}) {
   return segments
 }
 
-function splitParagraphToPieces(para, maxLen) {
+function splitParagraphToPieces(para, maxLen, rules) {
   const raw = para.split(SPLIT_RE)
   const sentences = []
   for (let i = 0; i < raw.length; i++) {
@@ -138,13 +169,16 @@ function splitParagraphToPieces(para, maxLen) {
     }
   }
 
-  // 纯引号段或以收尾引号开头的残段（如「!” then left」里的 `”`）并回前一句
+  // 纯引号段或以收尾引号开头的残段（如「!” then left」里的 `”`）并回前一句。
+  // 字符集由当前口径派生：standard 不含「」，纯「」段不会被当成引号剥掉。
+  const closingChars = [...rules.closeQuotes, '\u2019'].join('')
+  const closeResidue = new RegExp(`^([${closingChars}]+)(.*)$`, 's')
   const cleaned = []
   for (const s of sentences) {
-    if (cleaned.length && s && [...s].every((c) => QUOTE_CHARS.has(c))) {
+    if (cleaned.length && s && [...s].every((c) => rules.quoteChars.has(c))) {
       cleaned[cleaned.length - 1] += s
     } else if (cleaned.length && s) {
-      const m = /^([\u201d\u300d\u300f\u2019]+)(.*)$/s.exec(s)
+      const m = closeResidue.exec(s)
       if (m) {
         cleaned[cleaned.length - 1] += m[1]
         if (m[2].trim()) cleaned.push(m[2])
@@ -171,11 +205,11 @@ function splitParagraphToPieces(para, maxLen) {
  * 把一句话按引号栈切成若干个 run（栈由调用方在同段内跨句维护）。
  * 未闭合的开引号：同段后续内容一律算对话（书里常见整段引用）。
  */
-function splitByQuotes(sentence, stack = []) {
+function splitByQuotes(sentence, stack = [], rules = quoteRules()) {
   const out = []
   let buf = ''
   for (const ch of sentence) {
-    const expectedClose = QUOTE_PAIRS.get(ch)
+    const expectedClose = rules.pairs.get(ch)
     if (expectedClose) {
       if (stack.length === 0) {
         if (buf.trim()) out.push({ text: buf, role: 'narrator' })
@@ -184,12 +218,12 @@ function splitByQuotes(sentence, stack = []) {
         buf += ch
       }
       stack.push(expectedClose)
-    } else if (CLOSE_QUOTES.has(ch) && stack.length > 0) {
+    } else if (rules.closeQuotes.has(ch) && stack.length > 0) {
       buf += ch
       const matchIdx = stack.lastIndexOf(ch)
       if (matchIdx >= 0) stack.splice(matchIdx)
       if (stack.length === 0) {
-        out.push({ text: buf, role: 'dialogue' })
+        out.push({ text: buf, role: isCornerTerm(buf, rules) ? 'narrator' : 'dialogue' })
         buf = ''
       }
     } else {
