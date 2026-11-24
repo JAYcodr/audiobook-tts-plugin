@@ -5,8 +5,9 @@
 
 1. rusage_info_v4 结构体尺寸 —— 写短了内核会越界写，直接把进程打崩
    （表现是 /health 返回 RemoteDisconnected，而不是某个异常）。
-2. 启动时给 MLX 缓存设上限、生成后超过阈值就归还缓存 —— 这是防止
-   footprint 涨到 10GB+、把整机推去 swap 的那道闸。
+2. 启动时给 MLX 缓存设 64MB 上限（set_cache_limit）—— 这是防止
+   footprint 涨到 10GB+、把整机推去 swap 的唯一一道闸；free cache
+   被封顶后不会再涨，生成后无需也不再做任何 clear_cache。
 3. /health 的内存字段口径 —— 有 footprint 就报 footprint，读不到回退
    ru_maxrss，且 maxrss_mb 不再比真实占用小一半。
 """
@@ -143,12 +144,23 @@ class SidecarMemoryTest(unittest.TestCase):
             else:
                 os.environ["TTS_MLX_CACHE_LIMIT_MB"] = old
 
-    def test_cache_is_returned_after_synthesis(self):
-        self.fake_mx.cache_bytes = 300 * 1024 * 1024
+    def test_synthesis_relies_only_on_cache_cap(self):
+        """生成走真实路径：唯一的内存控制是启动时的 64MB 封顶，不再有
+        「超阈值清缓存」这条永不触发的分支。用现实可达的缓存值（< 64MB
+        封顶），断言 set_cache_limit 生效、/health 如实上报 mlx_cache_mb，
+        且全程不调用 clear_cache。"""
+        self.assertFalse(hasattr(self.mod, "MLX_TRIM_THRESHOLD"))
+        self.fake_mx.cache_bytes = 40 * 1024 * 1024  # < 64MB 封顶，现实可达
         wav, audio_s, _gen_ms, _queue_ms = self.engine.synth("测试一句话。", "narrator")
         self.assertTrue(wav.startswith(b"RIFF"))
         self.assertGreater(audio_s, 0)
-        self.assertGreaterEqual(self.fake_mx.clear_calls, 1)
+        # 封顶是唯一机制：启动设过一次上限，生成后没有 clear_cache 兜底
+        self.assertEqual(self.fake_mx.set_limit_calls, [64 * 1024 * 1024])
+        self.assertEqual(self.fake_mx.clear_calls, 0)
+        status = self.engine.status()
+        self.assertIn("mlx_cache_mb", status)
+        self.assertIsInstance(status["mlx_cache_mb"], (int, float))
+        self.assertEqual(status["mlx_cache_mb"], 40.0)
 
     def test_small_cache_is_not_cleared(self):
         self.fake_mx.cache_bytes = 10 * 1024 * 1024

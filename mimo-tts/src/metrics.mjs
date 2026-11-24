@@ -9,6 +9,8 @@ import { dirname } from 'node:path'
 
 const MAX_PERSIST_DAYS = 365
 const MAX_PERSIST_CLIENTS = 50
+// 令牌聚合单独设上限，分享给一群人也不会把老记录从按客户端的列表里挤没（Issue #21）
+const MAX_PERSIST_TOKENS = 20
 const EMPTY_TOTALS = () => ({
   requests: 0,
   segments: 0,
@@ -105,6 +107,7 @@ export class Metrics {
     this.days = new Map()
     this.active = new Map()
     this.clients = new Map()
+    this.tokens = new Map()
     this.totals = EMPTY_TOTALS()
     this.lastError = null
   }
@@ -176,6 +179,22 @@ export class Metrics {
       }
     }
 
+    this.tokens = new Map()
+    if (Array.isArray(data.byToken)) {
+      for (const row of data.byToken.slice(0, MAX_PERSIST_TOKENS)) {
+        if (row && row.tokenId) {
+          this.tokens.set(String(row.tokenId), {
+            tokenId: String(row.tokenId),
+            label: String(row.label || ''),
+            chars: Number(row.chars) || 0,
+            segments: Number(row.segments) || 0,
+            requests: Number(row.requests) || 0,
+            lastAt: Number(row.lastAt) || 0,
+          })
+        }
+      }
+    }
+
     this.recent = Array.isArray(data.recent) ? data.recent.slice(-this.ringSize) : []
     return this
   }
@@ -219,6 +238,7 @@ export class Metrics {
         totals: this.totals,
         days: Object.fromEntries(prunedDays),
         clients: sortedClients,
+        byToken: [...this.tokens.values()].sort((a, b) => b.lastAt - a.lastAt).slice(0, MAX_PERSIST_TOKENS),
         recent: this.recent.slice(-this.ringSize),
       }, null, 2)
       const tmp = `${this.filePath}.tmp`
@@ -237,6 +257,7 @@ export class Metrics {
     this.days.clear()
     this.active.clear()
     this.clients.clear()
+    this.tokens.clear()
     this.totals = EMPTY_TOTALS()
     this.lastError = null
     this.flush()
@@ -307,6 +328,23 @@ export class Metrics {
       if (ev.role) c.role = ev.role
       this.clients.set(ev.client, c)
     }
+    // tokenId 只由服务端鉴权结果传入，不读请求里的客户端标识（Issue #21）
+    if (ev.tokenId) {
+      const id = String(ev.tokenId)
+      const row = this.tokens.get(id) || {
+        tokenId: id, label: '', chars: 0, segments: 0, requests: 0, lastAt: 0,
+      }
+      row.requests++
+      row.segments += ev.segments || 0
+      row.chars += ev.chars || 0
+      row.lastAt = t
+      if (ev.tokenLabel) row.label = String(ev.tokenLabel)
+      this.tokens.set(id, row)
+      if (this.tokens.size > MAX_PERSIST_TOKENS) {
+        const oldest = [...this.tokens.values()].sort((a, b) => a.lastAt - b.lastAt)[0]
+        if (oldest) this.tokens.delete(oldest.tokenId)
+      }
+    }
     this.scheduleSave()
     return item
   }
@@ -344,6 +382,7 @@ export class Metrics {
       cacheHitRate: this.totals.requests ? this.totals.cacheHits / this.totals.requests : 0,
       active: this.activeReaders(),
       clients: [...this.clients.values()].sort((a, b) => b.lastAt - a.lastAt).slice(0, 6),
+      byToken: [...this.tokens.values()].sort((a, b) => b.lastAt - a.lastAt),
       recent: this.recent.slice(-40),
       lastError: this.lastError,
     }

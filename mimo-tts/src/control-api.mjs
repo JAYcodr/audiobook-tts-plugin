@@ -20,6 +20,8 @@ export function buildStatePayload(service, req) {
     service: service.info(),
     config: redact(cfg),
     local: service.local.status(),
+    audioFallback: service.lastAudioFallback || null,
+    ffmpegAvailable: Boolean(service.ffmpegAvailable),
     live: {
       rpm: service.activeGate().usage(),
       rpmByProvider: service.rpmUsageByProvider(),
@@ -516,7 +518,9 @@ function sendRefError(res, err) {
   sendJson(res, status, { error: String(err?.message || err), code: err?.code || 'ref_error' })
 }
 
-async function invalidateIfRefUsed(service, refId) {
+export async function invalidateIfRefUsed(service, refId) {
+  // 参考音一变，缓存键里的指纹就变，旧条目再也不会命中却还占着上限（Issue #17）
+  service.cache?.clear()
   service.mimo?.clearSamples()
   const localRefs = service.config?.upstream?.local?.refs || {}
   if (localRefs.narrator?.refId === refId || localRefs.dialogue?.refId === refId) {

@@ -43,10 +43,11 @@ except Exception:  # pragma: no cover
 # MLX 把释放的 GPU buffer 留在自己的 free cache 里，上限默认 = memory_limit
 # （macOS 26 / M4 16G 实测 15.2GiB），进程 footprint 因此能涨到"推荐工作集"
 # 11.84GB。这些是 Metal/IOKit 内存，系统按 wired 记账——压缩不了、换不出去，
-# 听书半小时就能把整机推到 swap。64MB 封顶 + 每段主动归还后，footprint 稳定
-# 在模型权重本身（约 2.3GB）+ 约 1.2GB 驱动堆，不再随请求数上涨。
+# 听书半小时就能把整机推到 swap。启动时用 set_cache_limit 把 free cache 直接
+# 封顶到 64MB —— 这是唯一的内存控制机制：free cache 不会超过上限，footprint
+# 稳定在模型权重（约 2.3GB）+ 约 1.2GB 驱动堆，不再随请求数上涨。因此不需要、
+# 也不再做「超阈值就 clear_cache」的兜底（上限远低于任何阈值，那种分支永不触发）。
 MLX_CACHE_LIMIT_MB = int(os.environ.get("TTS_MLX_CACHE_LIMIT_MB", "64") or 0)
-MLX_TRIM_THRESHOLD = 256 * 1024 * 1024
 
 # rusage_info_v4 的完整布局：ri_uuid(16B) + 35 个 u64 = 296 字节。内核按 296
 # 字节往里写，结构体比它短就是越界写——表现为调用方当场崩溃（/health 返回
@@ -324,8 +325,6 @@ class Engine:
                     if a.size:
                         chunks.append(a)
                 gen_ms = (time.time() - t0) * 1000
-                if mx is not None and mx.get_cache_memory() > MLX_TRIM_THRESHOLD:
-                    mx.clear_cache()
         finally:
             with self.active_lock:
                 self.active -= 1
