@@ -5,7 +5,7 @@
 - **本地引擎**（这个包）：`Qwen3-TTS-12Hz-0.6B-Base-8bit`，MLX 8bit 量化，1.9 GB
 - **云端**：不需要下任何模型，Key 就够了
 
-标准做法是跑 `./setup/install-local-engine.sh`，这里只讲它失败之后怎么办。
+标准做法是跑安装脚本：从包根运行 `./setup/install-local-engine.sh`（npm / DSH 安装），或克隆仓库后从仓库根运行 `./mimo-tts/setup/install-local-engine.sh`。这里只讲它失败之后怎么办。
 
 ---
 
@@ -68,7 +68,7 @@ mkdir -p ~/.dsh/plugin-data/mimo-tts/models
 tar xzf qwen3tts-0.6b-base-8bit.tgz -C ~/.dsh/plugin-data/mimo-tts/models
 ```
 
-拷完用 `./setup/check-env.sh` 校验大小。
+拷完用 `./setup/check-env.sh` 校验大小（包根下的路径；克隆仓库时是 `./mimo-tts/setup/check-env.sh`）。
 
 ---
 

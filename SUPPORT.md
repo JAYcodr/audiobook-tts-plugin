@@ -13,7 +13,7 @@
 
 ## 1. 提交前，三步自查（30 秒）
 
-1. 控制台顶部「打开向导与体检 → 运行体检（Doctor）」；终端里等价的是 `./setup/check-env.sh`
+1. 控制台顶部「打开向导与体检 → 运行体检（Doctor）」——**包安装与仓库内都走这一条**；只有克隆了仓库的人才能在终端跑等价命令 `./mimo-tts/setup/check-env.sh`，从 npm / DSH 安装的人没有仓库目录
 2. 在 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) 里搜症状关键词（`401` / `噪声` / `进度条` / `Worker` / `502` …）
 3. 看「渲染设置」右侧生效面板有没有脏标——**改了没保存，等于没改**
 
@@ -23,8 +23,7 @@
 
 ```bash
 cd /path/to/audiobook-tts-plugin
-./setup/check-env.sh
-./setup/agent-preflight.sh                 # 只读环境快照，JSON
+./mimo-tts/setup/check-env.sh
 curl -s http://127.0.0.1:8291/health
 tail -50 ~/.dsh/plugin-data/audiobook-tts-plugin/local-engine.log 2>/dev/null
 ```
@@ -53,45 +52,11 @@ tail -50 ~/.dsh/plugin-data/audiobook-tts-plugin/local-engine.log 2>/dev/null
 
 ---
 
-## 4. 可复制的 issue 正文
+## 4. 提 issue
 
-整段复制，把方括号填掉，就是一份合格的报告：
+直接去 <https://github.com/JAYcodr/audiobook-tts-plugin/issues> 新建 issue，页面会自动带出模板，按模板填即可：环境 / 现象 / 报错原文 / 复现步骤 / 已排除 / 体检与健康 / 补充。
 
-````markdown
-### 环境
-- 系统 / 芯片：[macOS 15.2 / Apple M2]
-- DSH 版本：[0.2.2-rc.3]
-- 插件版本：[0.5.0]
-- 引擎路线：[本地 Qwen3-TTS / OpenAI 兼容 / MiMo 云端 / Hybrid]
-- 公网方案：[无 / Quick Tunnel / Tailscale Funnel / 命名隧道 / Worker+KV]
-
-### 现象
-[一句话说清：哪一步、点了什么、期望什么、实际什么]
-
-### 报错原文
-```text
-[原样贴 3–20 行，别改写]
-```
-
-### 复现步骤
-1. [第一步]
-2. [第二步]
-3. [每次都这样 / 偶发]
-
-### 已排除
-- [ ] 跑过 Doctor / `./setup/check-env.sh`
-- [ ] 按 TROUBLESHOOTING.md 的哪一节试过：[第 N 节]
-- [ ] 完全退出并重启过 DSH
-- [ ] 换过端口 / 换过浏览器或手机重试
-
-### 体检与健康（已脱敏）
-```text
-[check-env.sh 的结论段 + /health 返回]
-```
-
-### 补充
-[截图或录屏；特殊网络环境（代理、TUN、公司防火墙）；其他插件冲突]
-````
+本文件不再复制一份模板——两份逐字重复的内容只会一边改一边漏，照着旧的那份填还得多来回问一次。材料怎么收集、密钥怎么脱敏，见上面的第 2、3 节。
 
 ---
 
@@ -99,7 +64,7 @@ tail -50 ~/.dsh/plugin-data/audiobook-tts-plugin/local-engine.log 2>/dev/null
 
 如果你正用 DSH 里的 AI 装这个插件，直接把下面这句发过去：
 
-> 按仓库里的 SUPPORT.md 生成一份 issue 报告：跑 `setup/check-env.sh` 与 `setup/agent-preflight.sh`，贴 `/health` 和日志尾部，把所有 token、API Key、账号邮箱换成 `***`，输出成一段可以直接复制的 Markdown。
+> 按 SUPPORT.md 的自查顺序与脱敏清单整理一份 issue 正文：跑 `mimo-tts/setup/check-env.sh`（仅克隆仓库时；包安装请点控制台「运行体检」），贴 `/health` 和日志尾部，把所有 token、API Key、账号邮箱换成 `***`，输出成一段可以直接复制的 Markdown。
 
 它应当**先脱敏再输出**；如果发现要往文本里写真实密钥，应该停下来问你，而不是照做。
 

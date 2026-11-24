@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { lanAddresses } from './auth.mjs'
 import { DEFAULT_MIN_MODEL_BYTES, DEFAULT_MIN_VOCODER_BYTES, validateModelDir } from './local.mjs'
-import { expandHomePath, findBinary, resolveRepoRoot } from './paths.mjs'
+import { expandHomePath, findBinary, resolvePackageRoot } from './paths.mjs'
 import { bindGroupCancel, runSyncCmd, streamLines } from './proc.mjs'
 import { detectHttpsTools } from './tunnel-manager.mjs'
 
@@ -495,10 +495,11 @@ export class SetupManager {
     this.minModelBytes = minModelBytes
     this.execaImpl = execaImpl
 
-    const repoRoot = resolveRepoRoot()
+    // 安装脚本随发布包一起分发，路径只认包根，不再回退到仓库根（Issue #32）。
+    const packageRoot = resolvePackageRoot()
     this.scripts = {
-      'install-local': scriptOverrides?.['install-local'] || join(repoRoot, 'setup', 'install-local-engine.sh'),
-      'download-model': scriptOverrides?.['download-model'] || join(repoRoot, 'setup', 'download-model.sh'),
+      'install-local': scriptOverrides?.['install-local'] || join(packageRoot, 'setup', 'install-local-engine.sh'),
+      'download-model': scriptOverrides?.['download-model'] || join(packageRoot, 'setup', 'download-model.sh'),
     }
 
     this.state = 'idle' // idle | running | succeeded | failed | cancelled

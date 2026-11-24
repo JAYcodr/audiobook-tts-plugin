@@ -2,6 +2,26 @@
 
 所有显著改动均记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [未发布]
+
+### 修复
+- **发布包补回安装脚本与内置参考音（#32）**：`setup/` 与 `refs/` 移入 `mimo-tts/` 并写进 `files`，走 npm / DSH 安装的人也能用「一键安装本地引擎」和默认参考音；`install-local-engine.sh` 兼容两种布局的 `requirements.txt`，缺失时开头明确报错。
+- **删除腐烂的 AI 安装提示词与预检探针（#23）**：`AI-SETUP-PROMPT.md`、`agent-preflight.sh` 已删，文档引用一并清理；让 AI 代劳改为直接读当前版本的 INSTALL.md。
+- **台版「」对白不再静默失效（#25）**：新增 `synth.dialogueQuoteChars`（standard / both / auto），引号配对集合参数化并统一纯引号残段口径；短角括号术语仍归旁白；翻转口径落盘时清空音频缓存（缓存键不含 role）。
+- **参考音变更后回收旧缓存（#17）**：`invalidateIfRefUsed` 补一次 `cache.clear()`，连裁几次不再让永不命中的旧条目占满上限。
+- **文档路径与内存口径（#33 / #26）**：仓库根 `setup/` 引用统一加 `mimo-tts/` 前缀并区分「仓库内命令行 / 包安装只能点控制台体检」；本地引擎常驻内存实测 3.2–3.7 GB，文档不再写 2.3 GB。
+
+### 新增
+- **发布形态 CI 门禁（#34）**：`mimo-tts/tools/pack-gate.mjs` 断言包内安装脚本 5 个、`refs/` 3 个且全是 wav、`deploy/` 与 `agent-preflight` 为 0、CI 无裸 `setup/`；迁移前 3/6 红、迁移后 6/6 绿，RELEASE.md 把它写成发版硬步骤。
+- **状态读数可见（#26，后端）**：`local.status()` 补 `mlxCacheMb`、`sidecarVersion` 与 `sidecarVersionMismatch`（磁盘脚本换了但进程还是旧代码时提示需重启），`/api/state` 顶层补 `audioFallback` 与启动期探测的 `ffmpegAvailable`。设置页黄条与交付页展示属于前端，待前端补。
+- **按令牌归因（#21，后端）**：统计新增 `byToken`（tokenId / label / chars / segments / requests / lastAt），标识只取服务端鉴权结果，伪造客户端标识改不了账；单独封顶 20 条并持久化。
+- **NAS / Linux 文档（#15）**：INSTALL 第 5.4 节给出 Kokoro-FastAPI + `provider=openai` 的一页，逐条标注「未验证」，含无头环境取 `auth.token` 与「先设密码再开公网」。
+- **自托管前提与已知边界（#24 / #18 / #22）**：README 开头三秒判断「我有没有条件用」；SUPPORT 删掉与 issue 模板逐字重复的一段；TROUBLESHOOTING 补语速无效、单音色、流式默认关、双角色串音四条非故障说明。
+
+### 重构
+- **侧车 256MB 清缓存死分支（#27）**：64MB 封顶下该阈值永不触发，删除 `MLX_TRIM_THRESHOLD` 与对应 `clear_cache()` 分支，测试改为真实路径覆盖，本文件不再描述一个不会触发的机制。
+- **路径解析（#32）**：`setup-manager` / `refs-store` 只认包根；`resolveRepoRoot` 改用 `deploy/` 判据供仓库内 KV 同步脚本使用，HTTPS-GUIDE 明确 `deploy/` 不随包分发。
+
 ## [0.6.4] - 2026-11-23
 
 ### 新增
@@ -42,11 +62,11 @@
 ## [0.6.1] - 2026-11-22
 
 ### 修复
-- **本地引擎内存封顶（MLX free cache）**：`sidecar/server.py` 启动时把 `mx.set_cache_limit` 从默认的 `memory_limit`（M4 16G 实测 15.2GiB）压到 64MB，并在每段生成后缓存超过 256MB 就 `mx.clear_cache()`。同一批 8 段实测：稳态 footprint 由 9.5GB（且持续上涨）降到 3.2–3.7GB 横住，生命周期峰值由 12.1GB 降到 6.0–6.5GB。这部分是 Metal/IOKit 内存，系统按 wired 记账——压缩不了也换不出去，是整机被推去 swap 的主因。可用环境变量 `TTS_MLX_CACHE_LIMIT_MB` 放宽。
+- **本地引擎内存封顶（MLX free cache）**：`sidecar/server.py` 启动时把 `mx.set_cache_limit` 从默认的 `memory_limit`（M4 16G 实测 15.2GiB）压到 64MB，**更正（#27）**：本版曾写「每段生成后缓存超过 256MB 就 `mx.clear_cache()`」的第二道保险，但 64MB 封顶下该阈值永不触发，已删除；实际只有封顶这一道机制。同一批 8 段实测：稳态 footprint 由 9.5GB（且持续上涨）降到 3.2–3.7GB 横住，生命周期峰值由 12.1GB 降到 6.0–6.5GB。这部分是 Metal/IOKit 内存，系统按 wired 记账——压缩不了也换不出去，是整机被推去 swap 的主因。可用环境变量 `TTS_MLX_CACHE_LIMIT_MB` 放宽。
 - **`/health` 改报真实内存口径**：改用 `libproc` 的 `proc_pid_rusage(RUSAGE_INFO_V4)` 读 `ri_phys_footprint` 与 `ri_lifetime_max_phys_footprint`（活动监视器「内存」那一列同口径）。`maxrss_mb` 原先取 `ru_maxrss`，不含 Metal/IOKit，实测同一进程 footprint 3.5GB 时只报 2.3GB、旧引擎 2.3GB 时报 1.0GB；现新增 `footprint_mb`、`footprint_peak_mb`、`rusage_maxrss_mb`、`mlx_cache_mb`、`mlx_peak_mb`，控制台内存数字与活动监视器对齐。读不到时回退 `ru_maxrss`，不影响启动。
 
 ### 测试
-- **sidecar 内存防回归**：新增 `mimo-tts/test/test_sidecar_memory.py`（9 例，桩掉 mlx / mlx_audio，0.03s，不需要 Apple Silicon 与模型权重）覆盖 `rusage_info_v4` 结构体尺寸（写短了内核越界写会直接把引擎打崩）、缓存上限设置与归还时机、`/health` 字段与回退口径；新增 `test/local-memory.test.mjs` 防止内存数字退回裸读 `maxrss`。CI 的 `python-shell-ci` 增加 numpy 安装与 unittest 步骤。
+- **sidecar 内存防回归**：新增 `mimo-tts/test/test_sidecar_memory.py`（9 例，桩掉 mlx / mlx_audio，0.03s，不需要 Apple Silicon 与模型权重）覆盖 `rusage_info_v4` 结构体尺寸（写短了内核越界写会直接把引擎打崩）、缓存上限设置（#27 起不再用桩伪造超阈状态）、`/health` 字段与回退口径；新增 `test/local-memory.test.mjs` 防止内存数字退回裸读 `maxrss`。CI 的 `python-shell-ci` 增加 numpy 安装与 unittest 步骤。
 
 ## [0.6.0] - 2026-11-20
 

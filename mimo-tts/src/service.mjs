@@ -7,7 +7,7 @@
  */
 import { createServer } from 'node:http'
 import { join } from 'node:path'
-import { authorized, clientKeyOf } from './auth.mjs'
+import { authorized, clientKeyOf, resolveAuth } from './auth.mjs'
 import {
   AudioCache,
   computeResponseEtag,
@@ -31,7 +31,7 @@ import { OpenAiTtsProvider } from './providers/openai.mjs'
 import { RefsStore } from './refs-store.mjs'
 import { SetupManager } from './setup-manager.mjs'
 import { splitText, toRequests } from './split.mjs'
-import { LEGADO_FORMATS, transcodeWav } from './transcode.mjs'
+import { LEGADO_FORMATS, resolveFfmpegPath, transcodeWav } from './transcode.mjs'
 import { TunnelManager } from './tunnel-manager.mjs'
 import { concatWavs } from './wav.mjs'
 
@@ -56,6 +56,9 @@ export class TtsService {
     })
     this.metrics.load()
     this.cache = new AudioCache(() => this.store.config.cache)
+    // 启动期探一次 ffmpeg：选了 mp3/opus 却没装时，状态里要看得见（Issue #26）
+    this.ffmpegAvailable = Boolean(resolveFfmpegPath())
+    this.lastAudioFallback = null
     const mimoGate = new RpmGate(() => this.store.config.limits.rpm)
     const openaiGate = new RpmGate(() => this.store.config.limits.rpm)
     const localGate = new NoopGate()
@@ -296,6 +299,7 @@ export class TtsService {
   // ───────────────────────── 朗读与合成流水线 ─────────────────────────
 
   async handleListening(req, res, url) {
+    const authRes = resolveAuth(req, url, this.config.auth)
     if (!this.authorized(req, url, { allowRead: true })) {
       const diag = humanizeError(401, this.diagnosticContext({ endpointAuth: true }))
       return sendJson(res, 401, { error: '需要鉴权', hint: diag.hint, code: diag.code }, {
@@ -380,6 +384,9 @@ export class TtsService {
     }
 
     const clientKey = clientKeyOf(req)
+    // 账单归因只认服务端鉴权结果：主令牌归 admin，只读令牌归各自 tokenId
+    const tokenId = authRes?.tokenId || 'admin'
+    const tokenLabel = authRes?.tokenLabel || '管理主令牌'
     const started = Date.now()
     const segments = this.prepareSegments(text, this.config)
     if (!segments.length) return sendJson(res, 400, { error: '切分或规则替换后没有内容' })
@@ -437,6 +444,7 @@ export class TtsService {
       if (tx.fallback) {
         this.log(`[audio] ${targetFormat} 转码已回退 WAV（reason=${tx.reason}${tx.error ? `: ${tx.error}` : ''}）`)
       }
+      this.lastAudioFallback = tx.fallback ? 'wav' : null
       const cacheHit = this.config.cache?.enabled !== false && requests.length > 0 && hits === requests.length
       const latency = Date.now() - started
       this.metrics.record({
@@ -447,6 +455,8 @@ export class TtsService {
         latencyMs: latency,
         cacheHit,
         client: clientKey,
+        tokenId,
+        tokenLabel,
         bookId,
         role,
         text: text.slice(0, 60),
@@ -485,6 +495,8 @@ export class TtsService {
         errorHint: diag.hint,
         errorAction: diag.action,
         client: clientKey,
+        tokenId,
+        tokenLabel,
         bookId,
         role,
         text: text.slice(0, 60),
@@ -504,7 +516,10 @@ export class TtsService {
   prepareSegments(text, cfg = this.config) {
     const afterGlobal = applyGlobalRules(text, cfg.textRules)
     if (!afterGlobal.trim()) return []
-    const raw = splitText(afterGlobal, { maxSegmentChars: cfg.synth?.maxSegmentChars })
+    const raw = splitText(afterGlobal, {
+      maxSegmentChars: cfg.synth?.maxSegmentChars,
+      dialogueQuoteChars: cfg.synth?.dialogueQuoteChars,
+    })
     return applySegmentRules(raw, cfg.textRules)
   }
 
@@ -546,7 +561,10 @@ export class TtsService {
     if (cleanRole === 'mixed') {
       const segments = applyTextRules !== false
         ? this.prepareSegments(text, effCfg)
-        : splitText(text, { maxSegmentChars: effCfg.synth?.maxSegmentChars })
+        : splitText(text, {
+        maxSegmentChars: effCfg.synth?.maxSegmentChars,
+        dialogueQuoteChars: effCfg.synth?.dialogueQuoteChars,
+      })
       if (!segments.length) throw new HttpInputError('规则替换或切分后没有可试听内容', 400)
       const requests = toRequests(segments, effCfg.voices)
       const wavs = []
@@ -577,6 +595,12 @@ export class TtsService {
     const before = structuredClone(this.config)
     const result = this.store.update(patch)
     if (result.problems?.length) return result
+
+    // 缓存键是「文本 + 音色」，不含 role：翻转引号口径后同一段文本的角色变了，
+    // 不清缓存会一直命中旧的旁白音频直到 TTL 过期（Issue #25）。
+    if (before.synth?.dialogueQuoteChars !== this.config.synth?.dialogueQuoteChars) {
+      this.cache.clear()
+    }
 
     await this.registry.onConfigChange(before, this.config)
 

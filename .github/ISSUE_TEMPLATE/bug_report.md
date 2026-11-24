@@ -31,7 +31,7 @@ token、API Key、CF_API_TOKEN、账号邮箱，一律先换成 *** 再贴。
 2.
 
 ### 已排除
-- [ ] 跑过 Doctor / `./setup/check-env.sh`
+- [ ] 跑过 Doctor / `./mimo-tts/setup/check-env.sh`
 - [ ] 按 TROUBLESHOOTING.md 对应小节试过
 - [ ] 完全退出并重启过 DSH
 - [ ] 换过端口 / 换过客户端重试

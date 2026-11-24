@@ -93,6 +93,8 @@ export const DEFAULTS = {
     // false = 返回长度正确的完整 WAV（Legado 进度正确）
     // true  = 返回长度未知的流式 WAV（首音更快，但 Legado 的时长/翻页会失真）
     stream: false,
+    // 对白引号口径：standard 只认“”，both 加认「」『』，auto 按文本自动判台版排版
+    dialogueQuoteChars: 'standard',
   },
   // 输出音频封装与有损压缩选项（mp3/opus 依赖本机 ffmpeg；无 ffmpeg 自动回退 wav）
   audio: {
@@ -404,6 +406,8 @@ export function applyEnv(cfg, env = process.env) {
   return cfg
 }
 
+export const DIALOGUE_QUOTE_MODES = ['standard', 'both', 'auto']
+
 export function validate(cfg, ctx = {}) {
   const problems = []
   const port = Number(cfg.server?.port)
@@ -418,6 +422,9 @@ export function validate(cfg, ctx = {}) {
   }
   const n = Number(cfg.synth?.maxSegmentChars)
   if (!Number.isInteger(n) || n < 10 || n > 300) problems.push('synth.maxSegmentChars 必须是 10–300')
+  if (!DIALOGUE_QUOTE_MODES.includes(cfg.synth?.dialogueQuoteChars || 'standard')) {
+    problems.push('synth.dialogueQuoteChars 必须是 standard / both / auto')
+  }
 
   const provider = cfg.upstream?.provider
   if (!['mimo', 'local', 'hybrid', 'openai'].includes(provider)) {

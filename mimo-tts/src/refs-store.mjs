@@ -9,7 +9,7 @@ import {
 } from 'node:fs'
 import { basename, extname, join, resolve, sep } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
-import { expandHomePath, findBinary, resolvePackageRoot, resolveRepoRoot } from './paths.mjs'
+import { expandHomePath, findBinary, resolvePackageRoot } from './paths.mjs'
 import { normalizeWav, parseWav, sliceWav } from './wav.mjs'
 
 export const MAX_REF_BYTES = 10 * 1024 * 1024 // 10 MB
@@ -134,14 +134,8 @@ function decodeAudioRangeWithFfmpeg({
 }
 
 function findBuiltinRefsDir() {
-  const candidates = [
-    join(resolveRepoRoot(), 'refs'),
-    join(resolvePackageRoot(), 'refs'),
-  ]
-  for (const dir of candidates) {
-    if (existsSync(dir)) return dir
-  }
-  return candidates[0]
+  // 内置参考音随包分发，只认包根 refs/（Issue #32）。
+  return join(resolvePackageRoot(), 'refs')
 }
 
 export class RefsStore {

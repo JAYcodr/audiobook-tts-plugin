@@ -18,10 +18,17 @@ import {
 } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { expandHomePath } from './paths.mjs'
 
 const DEFAULT_SCRIPT = fileURLToPath(new URL('../sidecar/server.py', import.meta.url))
+
+/** 侧车脚本内容指纹：npm 换了磁盘上的 server.py、进程里还是旧代码时能看出来（Issue #26）。 */
+function sidecarFingerprint(script) {
+  try {
+    return createHash('sha1').update(readFileSync(script)).digest('hex').slice(0, 12)
+  } catch { return '' }
+}
 const MAX_LOG_BYTES = 2 * 1024 * 1024
 export const DEFAULT_MIN_VOCODER_BYTES = 600_000_000
 export const DEFAULT_MIN_MODEL_BYTES = 500_000_000
@@ -130,6 +137,11 @@ export class LocalEngine {
     this.lastStopReason = ''
     this.rssMb = null
     this.loadS = null
+    this.mlxCacheMb = null
+    this.sidecarVersion = ''
+    this.mlxCacheMb = null
+    this.sidecarVersion = ''
+    this.runningScript = DEFAULT_SCRIPT
     this.lastUsed = 0
     this.lastError = ''
     this.recent = []
@@ -179,6 +191,11 @@ export class LocalEngine {
       warmError: this.warmError || '',
       rssMb: this.rssMb,
       loadS: this.loadS,
+      mlxCacheMb: this.mlxCacheMb,
+      sidecarVersion: this.sidecarVersion || null,
+      sidecarVersionMismatch: enabled && this.state === 'ready'
+        && !!this.sidecarVersion
+        && this.sidecarVersion !== sidecarFingerprint(this.runningScript || this.scriptPath),
       idleUnloadSeconds: idle,
       warmupWindowSeconds: warmWindow,
       warmHoldRemainingSec: holdRemainSec,
@@ -241,6 +258,8 @@ export class LocalEngine {
     this.port = port
 
     const script = cfg.serverScript ? resolve(expandHomePath(cfg.serverScript)) : this.scriptPath
+    this.runningScript = script
+    this.sidecarVersion = sidecarFingerprint(script)
     if (!existsSync(script)) throw new LocalError(`sidecar 脚本不存在：${script}`, 'missing_script')
     const pythonPath = expandHomePath(cfg.pythonPath)
     const modelPath = expandHomePath(cfg.modelPath)
@@ -324,6 +343,7 @@ export class LocalEngine {
           this.port = health.port || port
           this.rssMb = health.footprint_mb ?? health.maxrss_mb ?? null
           this.loadS = health.load_s ?? null
+          this.mlxCacheMb = health.mlx_cache_mb ?? null
           this.lastHealthAt = Date.now()
           this.lastUsed = Date.now()
           this.log(`[local] 就绪 ${this.summary()}`)
@@ -607,6 +627,7 @@ export class LocalEngine {
           const h = await res.json()
           if (h.instanceId === this.instanceId) {
             this.rssMb = h.footprint_mb ?? h.maxrss_mb ?? this.rssMb
+            this.mlxCacheMb = h.mlx_cache_mb ?? this.mlxCacheMb
             this.lastHealthAt = Date.now()
           }
         }

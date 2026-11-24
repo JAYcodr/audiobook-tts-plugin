@@ -396,7 +396,7 @@ export class TunnelManager {
           state: 'skipped',
           lastSyncAt: Date.now(),
           lastUrl: targetUrl,
-          message: '未找到同步脚本 deploy/cf-worker-relay/sync-tunnel-url.mjs',
+          message: '未找到同步脚本 deploy/cf-worker-relay/sync-tunnel-url.mjs：该脚本只在克隆仓库时提供，不随 npm 发布包分发；请单独部署 deploy/cf-worker-relay/ 或改用 API 同步模式（见 HTTPS-GUIDE.md 方案 D）',
         }
         return { ok: false, skipped: true, kvSync: { ...this.kvSync }, tunnel: this.status() }
       }

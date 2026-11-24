@@ -303,10 +303,10 @@ export function applySegmentRules(segments, textRules) {
 /**
  * 文本处理实时调试预览：原文 -> 全局替换 -> 角色切分 -> 角色段规则替换。
  */
-export function previewTextPipeline(text, { textRules, maxSegmentChars = 100 } = {}) {
+export function previewTextPipeline(text, { textRules, maxSegmentChars = 100, dialogueQuoteChars = 'standard' } = {}) {
   const originalText = String(text ?? '')
   const afterGlobalText = applyGlobalRules(originalText, textRules)
-  const rawSegments = splitText(afterGlobalText, { maxSegmentChars })
+  const rawSegments = splitText(afterGlobalText, { maxSegmentChars, dialogueQuoteChars })
   const segments = applySegmentRules(rawSegments, textRules)
   return {
     originalText,

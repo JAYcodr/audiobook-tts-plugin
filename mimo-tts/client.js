@@ -220,6 +220,7 @@ var FIELDS = [
   { path: "synth.maxTextChars", label: "\u6700\u957F\u6587\u672C", module: "synth" },
   { path: "synth.concurrency", label: "\u5408\u6210\u5E76\u53D1", module: "synth" },
   { path: "synth.stream", label: "\u6D41\u5F0F\u8FD4\u56DE", module: "synth" },
+  { path: "synth.dialogueQuoteChars", label: "\u5BF9\u767D\u5F15\u53F7", module: "synth" },
   { path: "audio.format", label: "\u8F93\u51FA\u97F3\u9891\u683C\u5F0F", module: "synth" },
   { path: "audio.bitrate", label: "\u538B\u7F29\u7801\u7387", module: "synth" },
   { path: "cache.enabled", label: "\u542F\u7528\u7F13\u5B58", module: "synth" },
@@ -382,6 +383,7 @@ function fromConfig(cfg) {
     "synth.maxTextChars": str(synth.maxTextChars, "10000"),
     "synth.concurrency": str(synth.concurrency, "4"),
     "synth.stream": Boolean(synth.stream),
+    "synth.dialogueQuoteChars": str(synth.dialogueQuoteChars, "standard"),
     "audio.format": str(audio.format, "wav"),
     "audio.bitrate": str(audio.bitrate, "64"),
     "cache.enabled": Boolean(cache.enabled),
@@ -2335,12 +2337,6 @@ var import_react10 = __toESM(require("react"), 1);
 
 // client/components/LexiconEditor.jsx
 var import_react7 = __toESM(require("react"), 1);
-
-// src/split.mjs
-var QUOTE_PAIRS = /* @__PURE__ */ new Map([
-  ["\u201C", "\u201D"]
-]);
-var CLOSE_QUOTES = new Set(QUOTE_PAIRS.values());
 
 // src/lexicon.mjs
 var MAX_TEXT_RULES = 200;

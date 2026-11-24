@@ -133,6 +133,8 @@ ingress:
 
 先注册 Cloudflare：<https://dash.cloudflare.com/sign-up>（免费计划就够），再 `npm i -g wrangler`（或全程用 `npx wrangler`），`wrangler login` 走浏览器授权，能用 `wrangler whoami` 看到账号就行。仓库已内置开箱即用的中转工程：`deploy/cf-worker-relay/`。
 
+> **`deploy/` 只在克隆仓库时存在，不随 npm / DSH 发布包分发**（打包门禁会断言它为 0）。从包安装的人要用方案 D，请把 `deploy/cf-worker-relay/` 单独放到一台常开机器上跑同步脚本，或改用控制台里不依赖该脚本的 API 同步模式；否则「立即同步 KV」会明确报「仅仓库内提供」。
+
 - **工作原理**：固定入口落在 Cloudflare Workers（`*.workers.dev`），Worker 从 Workers KV 读取当前 `https://xxx.trycloudflare.com` 并流式透传请求。
 - **安全边界**：
   - `worker.js` 只放行 `GET /health`、`GET /legado.json`、`GET|POST /listening`、`GET|OPTIONS /v1/models`、`POST|OPTIONS /v1/audio/speech`；
@@ -159,4 +161,4 @@ ingress:
 2. **Worker 返回 `503 upstream_tunnel_error (502/530)`**：本机 `cloudflared` 断线或后端端口变了；重启 Quick Tunnel 即可。
 3. **OpenAI 端点返回 `404 endpoint_disabled`**：这是安全默认行为——前往「渲染设置 → 09 对外 OpenAI 兼容端点」打开开关并生成独立 Bearer Key。
 4. **Legado / Readest 报 `401`**：检查地址中的 `?token=` 或 OpenAI 客户端里填写的 `API Key`（配置了独立 `openaiServer.apiKey` 后，`auth.token` 不再用于 `/v1/*`）。
-5. **以上都不是**：按 [SUPPORT.md](SUPPORT.md) 收材料——`setup/check-env.sh` 结论、`/health`、隧道或 Worker 的几行日志，token 与 Key 换成 `***`，再提到 <https://github.com/JAYcodr/audiobook-tts-plugin/issues>。
+5. **以上都不是**：按 [SUPPORT.md](SUPPORT.md) 收材料——`mimo-tts/setup/check-env.sh` 结论、`/health`、隧道或 Worker 的几行日志，token 与 Key 换成 `***`，再提到 <https://github.com/JAYcodr/audiobook-tts-plugin/issues>。

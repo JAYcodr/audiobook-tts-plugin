@@ -65,4 +65,16 @@ jobs:
           print(f'Verified {len(lines)} pinned Python dependencies.')
           PY
       - name: Check setup shell scripts syntax
-        run: bash -n setup/*.sh
+        run: bash -n mimo-tts/setup/*.sh
+
+  pack-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Assert published package contents
+        run: |
+          (cd mimo-tts && npm pack --dry-run --json > /tmp/pack.json)
+          node mimo-tts/tools/pack-gate.mjs /tmp/pack.json
