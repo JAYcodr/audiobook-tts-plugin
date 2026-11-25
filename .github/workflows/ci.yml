@@ -21,6 +21,10 @@ jobs:
       - name: Install devDependencies
         working-directory: mimo-tts
         run: npm ci
+      # runner 自带的 python3 受 PEP 668 管理，pip 装不进去；用 setup-python 拿独立解释器
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Install numpy for sidecar process tests
         # test/sidecar-lifecycle.test.mjs 会起真 sidecar 进程（mlx_audio 用 PYTHONPATH 桩）
         run: python3 -m pip install --disable-pip-version-check "numpy>=2.0,<3"
