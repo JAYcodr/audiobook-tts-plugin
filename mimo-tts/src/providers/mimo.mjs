@@ -399,7 +399,13 @@ export class MimoProvider extends TTSProvider {
     const sourceTag = meta?.source || this.id
     const concurrency = Math.max(1, Math.min(8, Number(cfg.synth?.concurrency) || 4))
     const abortCtrl = new AbortController()
-    const onClose = () => abortCtrl.abort()
+    // 正常写完 res.end() 之后也会触发 close，不能一律当成「客户端跑了」；
+    // 只有响应还没写完就 close，才是真的中途断开。
+    let clientGone = false
+    const onClose = () => {
+      if (!res.writableEnded) clientGone = true
+      abortCtrl.abort()
+    }
     res.on?.('close', onClose)
 
     // 先把第 1..N-1 段排队（受并发控制），与第 0 段流式同时起跑
@@ -526,20 +532,26 @@ export class MimoProvider extends TTSProvider {
       if (!wroteHeader) ensureHeaders(sampleRate)
       res.end()
 
-      metrics?.record({
-        chars: meta.text.length,
-        segments: requests.length,
-        bytes: totalBytes,
-        audioSeconds: seconds,
-        latencyMs: Date.now() - meta.started,
-        cacheHit: hits === requests.length,
-        client: meta.clientKey,
-        bookId: meta.bookId,
-        role: meta.role,
-        text: meta.text.slice(0, 60),
-        format: 'wav-stream',
-        source: sourceTag,
-      })
+      if (clientGone) {
+        // 只发出去一段就断了：既没有完整交付，chars 又是全文长度，
+        // 记成功会让「今日用量」按整章虚高，只留日志。
+        this.log(`[stream] 客户端接收中断，本次不计入统计（已发出 ${totalBytes}B）`)
+      } else {
+        metrics?.record({
+          chars: meta.text.length,
+          segments: requests.length,
+          bytes: totalBytes,
+          audioSeconds: seconds,
+          latencyMs: Date.now() - meta.started,
+          cacheHit: hits === requests.length,
+          client: meta.clientKey,
+          bookId: meta.bookId,
+          role: meta.role,
+          text: meta.text.slice(0, 60),
+          format: 'wav-stream',
+          source: sourceTag,
+        })
+      }
       return { durationSec: seconds, bytes: totalBytes, hits, source: sourceTag }
     } finally {
       res.off?.('close', onClose)

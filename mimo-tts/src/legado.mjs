@@ -37,6 +37,11 @@ export function buildLegadoEntry({
 }
 
 export function handleLegadoJson(req, res, url, config) {
+  // 交付单是只读资源：PUT/DELETE 若按 GET 处理，会静默返回 200 JSON，
+  // 调用方以为写入成功，实际什么都没发生。
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    return sendJson(res, 405, { error: 'method not allowed' }, { headers: { Allow: 'GET, HEAD' } })
+  }
   const auth = config.auth || {}
   const authRes = resolveAuth(req, url, auth)
   if (auth.enabled && auth.token) {

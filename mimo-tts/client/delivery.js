@@ -1,16 +1,20 @@
 import { BODY_TEXT, CURL_SAMPLE } from './constants.js'
 
-/** 与 src/legado.mjs 同构；页面只读不发请求。 */
-export function legadoPayload(imp, cfg) {
+/**
+ * 与 src/legado.mjs 同构；页面只读不发请求。
+ * opts.audioFallback：服务端已经把 mp3/opus 回退成 WAV 时，交付单必须跟着改口，
+ * 否则阅读器按 audio/mpeg 解析 WAV 字节，出问题只在用户那头。
+ */
+export function legadoPayload(imp, cfg, opts = {}) {
   const headers = {
     'Content-Type': 'application/x-www-form-urlencoded',
     ...((cfg && cfg.legado && cfg.legado.extraHeaders) || {}),
   }
   const listen = String(imp?.listenUrl || '')
   const option = { method: 'POST', body: BODY_TEXT, header: headers }
-  const contentType = String(cfg?.audio?.format || 'wav').trim().toLowerCase() === 'mp3'
-    ? 'audio/mpeg'
-    : 'audio/wav'
+  const fallback = opts.audioFallback === 'wav' || opts.audioFallback === true
+  const declared = fallback ? 'wav' : String(cfg?.audio?.format || 'wav').trim().toLowerCase()
+  const contentType = declared === 'mp3' ? 'audio/mpeg' : 'audio/wav'
   return [{
     name: cfg?.legado?.name || '听书值守 TTS',
     url: `${listen},${JSON.stringify(option)}`,

@@ -2,6 +2,24 @@
 
 所有显著改动均记录在此文件。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## [未发布]
+
+### 修复
+- **413 终于能到达客户端**：`readBody` 超限时先 `reject` 再 `req.destroy()`，socket 在响应写出前就断了，真实客户端拿到的是 `ECONNRESET`，用户看到「连接错误」而不是「文本过长，请分段」。现在超限后继续消费并丢弃剩余请求体（`Connection: close`），`/listening` 与 `/api/*` 都能正常回 413 JSON。
+- **`/health` 不再假绿**：进程活着但 `listening=false`（启动失败 / `stopServer` 之后）原先仍返回 `status: "ok"`，监控永远是绿的。现在返回 `stopped`；CLI 探活用 `version + provider` 判身份，不会再把这个状态误报成「端口上是别的服务」。
+- **`/legado.json` 非 GET 返回 405**：PUT / DELETE / HEAD 原先按 GET 处理并返回 200 JSON，调用方以为写入成功。现在 405 + `Allow: GET, HEAD`。
+- **流式中途断开不再记账**：客户端只收到一段就断开，`respondStreaming` 仍按全文长度记一次成功，「今日用量」按整章虚高。现在区分「写完后的 close」与「没写完就 close」，后者只留日志，不计入统计。
+- **CORS 预检放行插件令牌头**：`Access-Control-Allow-Headers` 补 `X-Audiobook-Token` / `X-Mimo-Token`，浏览器带插件令牌直连时不再被预检拦掉。
+
+### 新增
+- **真 HTTP 契约测试（`test/contract-http.test.mjs`）**：`listen(0)` 起真服务 + 本地假 MiMo 上游（整段与 SSE 两种），用真 socket 断言：413 可投递、`/health` 状态、`/legado.json` 方法矩阵、上游 5xx 透传、预检允许头、chunked 无 Content-Length、首块早于末块、客户端 abort 后上游被取消、`Content-Length` 与真实字节一致。`TtsService.createRequestListener()` 把生产监听入口抽出来，测试与生产共用同一段 catch 逻辑。
+- **sidecar 进程测试（`test/sidecar-lifecycle.test.mjs` + `test/fixtures/fake-mlx`）**：`PYTHONPATH` 塞一个假 `mlx_audio`，普通 Linux CI 也能起真 `server.py`。锁死两条 0.6.2 事故：父进程被 SIGKILL 后孤儿 sidecar 必须自己退出并写 `orphan_exit`；日志文件不可写时 watchdog 仍要退出（删掉 `try/except` 或 orphan 分支，测试都会红）。没有 numpy 的环境自动跳过，CI 的 node-ci 显式安装。
+- **发布形态真装冒烟（`test/pack-install.test.mjs`）**：`npm pack` 出 tgz → `npm install` 进干净临时目录 → 检查 setup/refs/sidecar/bin 都在 → 用装出来的 `.bin` 冷启 → `/health` 200 → SIGTERM 干净退出。`pack-gate` 补点名的必需文件断言（`sidecar/server.py`、`bin/*.mjs`、`client.js`、`locale/`、`skills/`，以及 `test/` 与 `mimo-tts/` 前缀不得混入）。
+- **状态读数接进界面**：设置页本地引擎模块把「进程 footprint」与「MLX 缓存」分开报，`sidecarVersionMismatch` 时渲染黄条提示重启；交付页在 `audioFallback` 非空时展示回退原因，`legadoPayload` 的 `contentType` 跟随回退改成 `audio/wav`（此前仍宣称 `audio/mpeg`）。
+
+### 测试
+- `npm test` 先 `build:client` 再跑测试，改完 `.jsx` 不会还在测旧产物；新增 `npm run test:raw` 跳过构建。CI 的 node-ci 增加 numpy 安装与（既有）pack-gate 步骤。
+
 ## [0.6.5] - 2026-11-24
 
 ### 修复

@@ -62,8 +62,9 @@
     "preview:ui": "node tools/preview-harness.mjs",
     "lint": "eslint .",
     "check:secrets": "node tools/check-secrets.mjs",
-    "test": "node --test test/*.test.mjs",
-    "check": "npm run lint && npm run check:secrets && npm run build:client && npm test"
+    "test": "npm run build:client && node --test test/*.test.mjs",
+    "check": "npm run lint && npm run check:secrets && npm test",
+    "test:raw": "node --test test/*.test.mjs"
   },
   "dsh": {
     "bundle": {

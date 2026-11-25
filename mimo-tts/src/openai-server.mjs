@@ -29,7 +29,9 @@ const OPENAI_MODELS = [
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-API-Key, If-None-Match',
+  // 浏览器预检只放行实际会用到的头：插件的令牌头漏了的话，
+  // 前端带 X-Audiobook-Token 直连会先被预检拦掉，表现为「配置改了没生效」。
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-API-Key, X-Audiobook-Token, X-Mimo-Token, If-None-Match',
   'Access-Control-Expose-Headers': EXPOSE_HEADERS,
 }
 

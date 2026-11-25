@@ -11,6 +11,7 @@ import { QrCard } from './QrCard.jsx'
 export function DeliveryView({
   service, live, config, importInfo, tunnel, onRefreshState, onOpenSettings,
   onCopy, onExportConfig, onOpenSetup, onDiagAction, showToast,
+  audioFallback, ffmpegAvailable,
 }) {
   const [shareBusy, setShareBusy] = useState(false)
   const imp = importInfo || {}
@@ -54,7 +55,7 @@ export function DeliveryView({
   const token = cfg.auth?.token || ''
   const extraHeaders = cfg.legado?.extraHeaders && typeof cfg.legado.extraHeaders === 'object' ? cfg.legado.extraHeaders : {}
   const extraCount = Object.keys(extraHeaders).length
-  const payload = legadoPayload(imp, cfg)
+  const payload = legadoPayload(imp, cfg, { audioFallback })
   const curl = curlText(listenUrl)
   const concurrency = num(cfg.synth?.concurrency)
   const rpm = num(cfg.limits?.rpm)
@@ -95,6 +96,13 @@ export function DeliveryView({
     [extraCount > 0, '附加请求头', extraCount ? `${extraCount} 项` : '未设置'],
     [true, '端口', `${service?.host || cfg.server?.host || '—'}:${service?.port || cfg.server?.port || '—'}`],
     [true, '引擎', PROVIDER_CN[provider] || provider],
+    [
+      !audioFallback,
+      '音频格式',
+      audioFallback
+        ? `已回退 ${String(audioFallback).toUpperCase()} · ffmpeg ${ffmpegAvailable ? '异常' : '未装'}`
+        : String(cfg.audio?.format || 'wav').toUpperCase(),
+    ],
   ]
 
   const specRow = (sk, sv, sa) => (
