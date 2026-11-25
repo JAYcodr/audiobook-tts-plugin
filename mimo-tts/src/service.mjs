@@ -157,10 +157,12 @@ export class TtsService {
 
   // ───────────────────────── 生命周期 ─────────────────────────
 
-  async start() {
-    if (this.server) return this.info()
-    const { host, port } = this.config.server
-    const server = createServer((req, res) => {
+  /**
+   * 生产监听与测试共用同一段请求入口：测试起 createServer(createRequestListener())
+   * 才是在真实 socket 上跑真实路由，而不是复制一份 catch 逻辑。
+   */
+  createRequestListener() {
+    return (req, res) => {
       this.handle(req, res).catch((err) => {
         this.log(`[error] ${req.method} ${req.url} → ${err?.message || err}`)
         if (!res.headersSent) {
@@ -170,7 +172,13 @@ export class TtsService {
           res.end()
         }
       })
-    })
+    }
+  }
+
+  async start() {
+    if (this.server) return this.info()
+    const { host, port } = this.config.server
+    const server = createServer(this.createRequestListener())
     server.keepAliveTimeout = 65_000
     await new Promise((resolve, reject) => {
       server.once('error', reject)
@@ -248,8 +256,10 @@ export class TtsService {
     const path = url.pathname
 
     if (path === '/health') {
+      // 进程活着但没在听书（启动失败 / stopServer 之后）不能报 ok：
+      // 探活脚本只看 status 的话，服务挂了也永远是绿的。
       return sendJson(res, 200, {
-        status: 'ok',
+        status: this.listening ? 'ok' : 'stopped',
         ...this.info(),
         cache: this.cache.stats(),
         rpm: this.activeGate().usage(),
@@ -324,7 +334,17 @@ export class TtsService {
       : Boolean(this.config.synth.stream)
 
     if (req.method === 'POST') {
-      const body = await readBody(req, 1_000_000)
+      let body
+      try {
+        body = await readBody(req, 1_000_000)
+      } catch (err) {
+        // 请求体读不完（超限 / 连接中断）也要给客户端一个能读的 JSON：
+        // 413 是「把书分短一点」的唯一线索，不能被连接重置吃掉。
+        const status = err instanceof HttpInputError ? err.status : 400
+        return sendJson(res, status, { error: err?.message || '请求体读取失败' }, {
+          headers: { Connection: 'close' },
+        })
+      }
       const ct = (req.headers['content-type'] || '').toLowerCase()
       if (ct.includes('application/json')) {
         try {

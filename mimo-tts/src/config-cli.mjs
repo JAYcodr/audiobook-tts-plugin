@@ -404,7 +404,10 @@ async function probeHealth({ host, port, timeoutMs = 3000, fetchImpl = fetch }) 
     const res = await fetchImpl(`http://${host}:${port}/health`, { signal: AbortSignal.timeout(timeoutMs) })
     if (!res.ok) return { reachable: true, isService: false, status: res.status }
     const body = await res.json().catch(() => null)
-    return { reachable: true, isService: Boolean(body && body.status === 'ok'), status: res.status, body }
+    // 身份判据不能只看 status：服务活着但没在听书时 status 是 stopped，
+    // 那是「听书服务没在跑」而不是「端口上是别的服务」，两种要分别提示。
+    const isService = Boolean(body && typeof body.version === 'string' && 'provider' in body)
+    return { reachable: true, isService, status: res.status, body }
   } catch (err) {
     return { reachable: false, isService: false, error: err?.code || err?.name || 'network_error' }
   }

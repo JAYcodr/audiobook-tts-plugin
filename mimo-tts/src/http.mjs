@@ -29,12 +29,15 @@ export function readBody(req, limit = 1_000_000) {
     let size = 0
     let failed = false
     req.on('data', (c) => {
+      // 超限后必须继续消费剩余请求体（丢弃），不能 req.destroy()：
+      // destroy 会先掐断 socket，调用方再写 413 客户端就只剩 ECONNRESET，
+      // 用户看到的是「连接错误」而不是「文本过长，请分段」。
       if (failed) return
       size += c.length
       if (size > limit) {
         failed = true
+        chunks.length = 0
         reject(new HttpInputError('请求体过大', 413))
-        req.destroy()
       } else {
         chunks.push(c)
       }
