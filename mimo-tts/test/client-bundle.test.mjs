@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import vm from 'node:vm'
 import { buildDraftSnapshot, buildPatch, diffFields, fromConfig } from '../client/config-draft.js'
 import { buildTimeline, rulerTicks } from '../client/timeline-math.js'
+import { legadoPayload } from '../client/delivery.js'
 
 function createRenderReact(stateOverrides = {}) {
   let hookIdx = 0
@@ -333,4 +334,136 @@ test('前端时间线数学函数处理 OpenAI 来源与空数据不产生 NaN',
   assert.equal(tm.list.length, 1)
   assert.equal(tm.list[0].source, 'cloud')
   assert.equal(tm.list[0].sourceLabel, 'OpenAI')
+})
+
+
+/** Issue #26 的界面半边：状态读数必须真的出现在页面上，而不是只躺在 /api/state 里。 */
+function readoutState(overrides = {}) {
+  const base = {
+    service: { running: true, host: '0.0.0.0', port: 8291, provider: 'local', version: '0.6.5' },
+    local: {
+      enabled: true,
+      state: 'ready',
+      rssMb: 3584,
+      mlxCacheMb: 612,
+      sidecarVersion: 'abc12345',
+      sidecarVersionMismatch: false,
+    },
+    live: {
+      rpm: { used: 0, limit: 100, waiting: 0 },
+      cache: { enabled: true, entries: 0, maxEntries: 500, bytes: 0, maxBytes: 1, hits: 0, misses: 0, hitRate: 0 },
+      today: { requests: 0, segments: 0, chars: 0, seconds: 0, errors: 0 },
+      totals: { requests: 0, segments: 0, chars: 0, bytes: 0, seconds: 0, errors: 0, cacheHits: 0 },
+      latency: { p50: 0, p95: 0, max: 0, samples: 0 },
+      days: [],
+      active: [],
+      clients: [],
+      byToken: [],
+      recent: [],
+    },
+    config: {
+      server: { host: '0.0.0.0', port: 8291, publicUrl: '' },
+      upstream: {
+        provider: 'local',
+        keys: [],
+        local: {
+          pythonPath: '/usr/bin/python3',
+          modelPath: '/models/qwen3-tts',
+          port: 8398,
+          idleUnloadSeconds: 1800,
+          warmupWindowSeconds: 900,
+          startupTimeoutMs: 180000,
+          refs: { narrator: { wav: '/refs/narrator.wav', text: '参考文本' } },
+        },
+      },
+      voices: {
+        narrator: { mode: 'preset', voice: '冰糖', style: '' },
+        dialogue: { mode: 'preset', voice: '苏打', style: '' },
+      },
+      voiceProfiles: { active: '', items: [] },
+      textRules: { enabled: true, items: [] },
+      synth: { maxSegmentChars: 100, maxTextChars: 10000, concurrency: 4, stream: false, dialogueQuoteChars: 'standard' },
+      cache: { enabled: true, maxEntries: 500, maxBytes: 1, ttlSeconds: 7200, httpMaxAgeSeconds: 3600 },
+      auth: { enabled: false, user: 'admin', pass: '', token: 'tok-readout', readTokens: [] },
+      legado: { name: '听书值守 TTS', extraHeaders: {} },
+      limits: { rpm: 100 },
+      log: { ring: 500 },
+      openaiServer: { enabled: false, apiKey: '', voiceMap: {}, defaultModel: 'audiobook-tts', mp3Fallback: 'wav' },
+      tunnel: {
+        protocol: 'http2',
+        kvSync: { enabled: false, mode: 'wrangler', kvNamespaceId: '', accountId: '', keyName: 'tunnel_url', publicRelayUrl: '' },
+      },
+      audio: { format: 'mp3', bitrate: 64 },
+    },
+    import: { hasToken: false, lanUrls: [] },
+    tunnel: { state: 'idle', kvSync: {} },
+    presetVoices: [],
+    builtinVoiceProfiles: [],
+    builtinRulePresets: [],
+    builtinPolyphonePresets: [],
+    refs: [],
+    setupSummary: { state: 'idle', platformSupported: true, readyForLocal: true },
+    audioFallback: null,
+    ffmpegAvailable: true,
+  }
+  return { ...base, ...overrides }
+}
+
+function renderView(state, view) {
+  const viewReact = createRenderReact({ state, view })
+  const viewMod = loadClientBundle(viewReact.React)
+  const regs = []
+  viewMod.apply({
+    slots: {
+      inject(_slot, fn) { regs.push(fn()) },
+      register(meta, comp) { return { meta, comp } },
+    },
+  })
+  return regs[0].comp({})
+}
+
+test('设置页把 MLX 缓存与进程内存分开报，版本不一致时出黄条', () => {
+  const tree = renderView(readoutState(), 'settings')
+  const text = collectText(tree).join(' ')
+  assert.match(text, /进程 3\.50 GB/, '进程内存读数没渲染')
+  assert.match(text, /MLX 缓存 612 MB/, 'MLX 缓存读数没渲染')
+
+  const mismatched = renderView(
+    readoutState({ local: { ...readoutState().local, sidecarVersionMismatch: true } }),
+    'settings',
+  )
+  const warnText = collectText(mismatched).join(' ')
+  assert.match(warnText, /重启/, '版本不一致时必须提示重启')
+  const warns = findNodes(mismatched, (n) => String(n.props?.className || '').includes('mod-warn'))
+  assert.ok(warns.length >= 1, '版本不一致应渲染 mod-warn 黄条')
+
+  const clean = readoutState()
+  const cleanTree = renderView(clean, 'settings')
+  const cleanWarns = findNodes(cleanTree, (n) => String(n.props?.className || '').includes('mod-warn'))
+  assert.equal(cleanWarns.length, 0, '版本一致时不能出现黄条')
+})
+
+test('交付页在音频回退时展示回退原因，交付单 contentType 跟着改口', () => {
+  const fallbackState = readoutState({ audioFallback: 'wav', ffmpegAvailable: false })
+  const tree = renderView(fallbackState, 'delivery')
+  const text = collectText(tree).join(' ')
+  assert.match(text, /已回退 WAV/, '交付页没展示转码回退')
+  assert.match(text, /ffmpeg 未装/, '回退原因应说明 ffmpeg 状态')
+
+  const clean = renderView(readoutState(), 'delivery')
+  const cleanText = collectText(clean).join(' ')
+  assert.ok(!cleanText.includes('已回退 WAV'), '没有回退时不能出现回退文案')
+
+  const [declared] = legadoPayload(
+    { listenUrl: 'http://127.0.0.1:8291/listening' },
+    { audio: { format: 'mp3' } },
+    { audioFallback: 'wav' },
+  )
+  assert.equal(declared.contentType, 'audio/wav', '回退后交付单不能再宣称 audio/mpeg')
+
+  const [normal] = legadoPayload(
+    { listenUrl: 'http://127.0.0.1:8291/listening' },
+    { audio: { format: 'mp3' } },
+  )
+  assert.equal(normal.contentType, 'audio/mpeg')
 })

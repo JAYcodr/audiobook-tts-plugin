@@ -17,6 +17,21 @@ function settingsChainValue(live, draft) {
   }
 }
 
+/** 本地引擎内存读数：进程 footprint 与 MLX 缓存分开报（缓存是 GPU 侧，活动监视器里看不到）。 */
+function localMemText(info, tag = '') {
+  const parts = []
+  if (tag) parts.push(tag)
+  const rss = Number(info?.rssMb)
+  const mlx = Number(info?.mlxCacheMb)
+  parts.push(rss > 0 ? `进程 ${(rss / 1024).toFixed(2)} GB` : '进程 —')
+  if (info?.mlxCacheMb !== null && info?.mlxCacheMb !== undefined) {
+    parts.push(`MLX 缓存 ${mlx.toFixed(0)} MB`)
+  } else if (info?.enabled) {
+    parts.push('MLX 缓存 —')
+  }
+  return parts.join(' · ')
+}
+
 function scrollToModule(id) {
   const el = document.getElementById(id)
   if (!el) return
@@ -542,12 +557,16 @@ export function SettingsView({
             <div key="st" className="ctrl-row">
               <div className="cl">
                 <b>引擎进程状态与内存</b>
-                <i>
-                  {`${localTag}${localInfo?.rssMb ? ` · ${(Number(localInfo.rssMb) / 1024).toFixed(2)} GB` : ' · 常驻约 1–2.3 GB'}`}
-                </i>
+                <i>{localMemText(localInfo, localTag)}</i>
               </div>
               <button className="btn btn--sm" type="button" onClick={onOpenSetup}>自动探测 / 安装</button>
             </div>,
+            localInfo?.sidecarVersionMismatch ? (
+              <div key="ver-warn" className="mod-warn" role="status">
+                <span className="dot" />
+                <span>{`本地引擎脚本已更新（v${localInfo.sidecarVersion || '?'}），进程还是旧代码——重启听书服务后生效`}</span>
+              </div>
+            ) : null,
             <div key="res-mode" className="ctrl-row">
               <div className="cl">
                 <b>驻留策略</b>

@@ -313,7 +313,7 @@ export function Panel() {
     else if (kind === 'quick-url') text = imp.quickTunnelUrl || state?.tunnel?.quickUrl || ''
     else if (kind === 'listen') text = imp.listenUrl || ''
     else if (kind === 'body') text = BODY_TEXT
-    else if (kind === 'json') text = JSON.stringify(legadoPayload(imp, cfg), null, 2)
+    else if (kind === 'json') text = JSON.stringify(legadoPayload(imp, cfg, { audioFallback: state?.audioFallback }), null, 2)
     else if (kind === 'curl') text = curlText(imp.listenUrl)
     else if (kind === 'token') text = cfg.auth?.token || ''
     else if (kind === 'openai-base') text = openaiBase
@@ -536,6 +536,8 @@ export function Panel() {
         config={config}
         importInfo={state.import || {}}
         tunnel={state.tunnel || {}}
+        audioFallback={state?.audioFallback}
+        ffmpegAvailable={state?.ffmpegAvailable}
         onRefreshState={refresh}
         onOpenSettings={onOpenSettings}
         onCopy={onCopy}

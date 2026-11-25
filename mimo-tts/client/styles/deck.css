@@ -208,3 +208,5 @@
   .mtt .voicemap-table{grid-template-columns:minmax(0,1fr)}
   .mtt .voicemap-row, .mtt .voicemap-add{grid-template-columns:minmax(0,1fr)}
 }
+.mtt .mod-warn{display:flex;align-items:center;gap:7px;padding:5px 8px;margin:3px 0 4px;background:rgba(177,58,34,.11);border:1px solid var(--grease);font:11px/1.45 var(--sans);color:var(--ink)}
+.mtt .mod-warn .dot{width:7px;height:7px;border-radius:50%;background:var(--grease);flex:none}
