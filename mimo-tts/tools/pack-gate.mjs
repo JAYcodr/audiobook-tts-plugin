@@ -49,6 +49,52 @@ expect('refs/ 非 wav 文件数', refs.filter((p) => !p.endsWith('.wav')).length
 expect('deploy/ 文件数', deploy.length, 0, '可选附件不应进主包')
 expect('agent-preflight 残留数', files.filter((p) => p.includes('agent-preflight')).length, 0, '已删除的探针不应再进包')
 
+// 入口与运行期必需文件的「点名断言」：只数目录会把「整个 sidecar/ 没进包」漏过去，
+// 而 files 少写一条时 dry-run 依然全绿，直到用户装完起不来。
+const REQUIRED = [
+  'index.js',
+  'client.js',
+  'cordis.patch.yml',
+  'icon.svg',
+  'bin/audiobook-tts.mjs',
+  'bin/mimo-tts.mjs',
+  'bin/config.mjs',
+  'sidecar/server.py',
+  'sidecar/requirements.txt',
+  'src/service.mjs',
+  'src/control-api.mjs',
+  'src/config.mjs',
+  'src/providers/mimo.mjs',
+  'tools/build-client.mjs',
+]
+for (const path of REQUIRED) {
+  expect(`必需文件 ${path}`, files.includes(path) ? 1 : 0, 1, `包里没有 ${path}，装完会起不来`)
+}
+expect(
+  'locale/ 文件数',
+  under('locale/').length,
+  2,
+  under('locale/').length ? `实际: ${under('locale/').join(', ')}` : '包里没有 locale/（界面文案会退化成 key）',
+)
+expect(
+  'skills/ 文件数 > 0',
+  under('skills/').length > 0 ? 1 : 0,
+  1,
+  '包里没有 skills/，AI 安装引导会缺文件',
+)
+expect(
+  'test/ 混入数',
+  under('test/').length,
+  0,
+  '测试不应发布进包',
+)
+expect(
+  '仓库目录前缀混入数',
+  files.filter((p) => p.startsWith('mimo-tts/')).length,
+  0,
+  '包内路径不该带仓库子目录前缀（files 写错成 mimo-tts/... 会装出嵌套目录）',
+)
+
 // 仓库内运行时顺带断言 CI 没有裸 setup/ 路径；包内发布形态没有 .github/，跳过即可。
 const ciFile = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '.github', 'workflows', 'ci.yml')
 if (existsSync(ciFile)) {

@@ -21,6 +21,9 @@ jobs:
       - name: Install devDependencies
         working-directory: mimo-tts
         run: npm ci
+      - name: Install numpy for sidecar process tests
+        # test/sidecar-lifecycle.test.mjs 会起真 sidecar 进程（mlx_audio 用 PYTHONPATH 桩）
+        run: python3 -m pip install --disable-pip-version-check "numpy>=2.0,<3"
       - name: Lint
         working-directory: mimo-tts
         run: npm run lint
